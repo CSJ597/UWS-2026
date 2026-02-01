@@ -87,7 +87,11 @@ def main():
     briefing = get_finnhub_news(finnhub_key, {"Gold": ["gold", "xau"], "Nasdaq": ["nasdaq", "tech", "nq"]})
     
     status_header = "🟢 **CONDITIONS FAVORABLE**\n*Clear for Execution*" if embed_color == 0x2ecc71 else "🔴 **CAUTION: HIGH VOLATILITY**\n*Red Folder Intelligence Detected*"
-    centered_title = "🏛️      UNDERGROUND UPDATE      🏛️"
+    
+    # --- CENTERING HACK ---
+    # \u2002 is an En Space (wider than normal space). Adjust number of spaces to tune centering.
+    spaces = "\u2002" * 12 
+    centered_title = f"{spaces}🏛️   UNDERGROUND UPDATE   🏛️"
 
     embeds = [{
         "title": centered_title,
@@ -98,7 +102,7 @@ def main():
             {"name": "📅 Upcoming Economic Events", "value": eco_intel, "inline": False},
             {"name": "\u200B", "value": "\u200B", "inline": False}, # Middle Spacer
             {"name": "🗞️ Market Briefing", "value": briefing, "inline": False},
-            {"name": "\u200B", "value": "\u200B", "inline": False}  # BOTTOM SPACER (Separates from Footer)
+            {"name": "\u200B", "value": "\u200B", "inline": False}  # Bottom Spacer (Gap for Footer)
         ],
         "footer": {"text": f"Follow the money, not the fake gurus. | UWS Intel Desk | {current_est}"}
     }]
