@@ -3,23 +3,19 @@ import os
 from datetime import datetime, timezone
 
 def get_ticker_news(api_key):
-    """Fetches one shortened article for Gold, Nasdaq, and ES."""
     if not api_key: return "⚠️ *FINNHUB_API_KEY mapping failed.*"
     url = f"https://finnhub.io/api/v1/news?category=general&token={api_key}"
     try:
         response = requests.get(url, timeout=10)
         data = response.json()
-        # Mapping assets to search keywords
         assets = {"Gold": ["gold", "xau"], "Nasdaq": ["nasdaq", "tech", "nq"], "ES": ["s&p 500", "sp500", "market"]}
         found = {asset: None for asset in assets}
-        
         for item in data:
             headline = item['headline']
             for asset, keywords in assets.items():
                 if any(k in headline.lower() for k in keywords) and found[asset] is None:
                     title = (headline[:47] + '...') if len(headline) > 50 else headline
                     found[asset] = f"• **{asset}**: [{title}]({item['url']})"
-        
         brief = [found[a] for a in assets if found[a]]
         return "\n".join(brief) if brief else "• No specific asset intel found."
     except: return "⚠️ *News feed throttled.*"
@@ -55,14 +51,22 @@ def main():
     title = "Upcoming Economic Intelligence" if not today_news else "Today's High Impact News"
     detail = "\n".join([f"-# {e}" for e in today_news]) if today_news else f"-# Next: {upcoming_news[0]['title']} ({upcoming_news[0]['date']} @ {upcoming_news[0]['time']})" if upcoming_news else "-# No releases."
 
-    # --- THE RESOLUTION FIX (800x600 for BASIC plan) ---
+    # --- THE STORAGE FIX (Ensures Discord shows the image) ---
     image_url = ""
     if chart_key:
-        api_url = f"https://api.chart-img.com/v2/tradingview/layout-chart/{layout_id}"
+        # Advanced Chart To Storage is the most reliable endpoint for Discord
+        api_url = "https://api.chart-img.com/v2/tradingview/advanced-chart/storage"
         headers = {"x-api-key": chart_key}
-        payload = {"width": 800, "height": 600, "theme": "dark"} # Scaled down for free tier
+        payload = {
+            "symbol": "CME_MINI:NQ1!", # Primary ticker
+            "layout": layout_id,
+            "width": 800, 
+            "height": 600, 
+            "theme": "dark"
+        }
         try:
-            res = requests.post(api_url, json=payload, headers=headers, timeout=20)
+            res = requests.post(api_url, json=payload, headers=headers, timeout=25)
+            # The API returns a 'url' key pointing to the saved file
             image_url = res.json().get('url', "")
         except: pass
 
