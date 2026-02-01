@@ -16,7 +16,6 @@ def percentile_nearest_rank(arr, percentile):
     return arr_sorted[max(0, index)]
 
 def format_est_time():
-    """Returns current time in 12-hour EST format."""
     est = pytz.timezone('US/Eastern')
     return datetime.now(est).strftime('%I:%M %p EST')
 
@@ -44,8 +43,6 @@ def get_data_and_levels(ticker, lookback=500):
     sess_o = window.iloc[0]['Open']
     aH = (window['High'] - sess_o).tolist()
     aL = (sess_o - window['Low']).tolist()
-    
-    # Levels dictionary
     lvls = {
         "ANCHOR": sess_o,
         "P50 H": sess_o + percentile_nearest_rank(aH, 50), "P50 L": sess_o - percentile_nearest_rank(aL, 50),
@@ -72,33 +69,27 @@ def main():
     s = mpf.make_mpf_style(base_mpf_style='nightclouds', marketcolors=mc, gridcolor='#1a1a1a', facecolor='#050505')
 
     files = {}
-    # Embed 0: The Update Briefing
     embeds = [
         {
             "title": "🏛️ UNDERGROUND UPDATE",
             "description": "🟢 **CONDITIONS FAVORABLE**\nClear for Execution",
             "color": 0x2ecc71,
             "fields": [
-                {"name": "📅 Upcoming Economic Intelligence", "value": "No major releases today. Watch session extremes."},
+                {"name": "📅 Upcoming Economic Intelligence", "value": "No major releases. Watch session extremes."},
                 {"name": "🗞️ Market Briefing", "value": briefing}
             ],
             "footer": {"text": f"Follow the money, not fake gurus. | UWS Intel Desk | {current_est}"}
         }
     ]
 
-    # Generate charts for GC and NQ
     for i, asset in enumerate(assets):
         df, lvls, sess_o = get_data_and_levels(asset["symbol"])
         if df is not None:
             fname = f"{asset['name'].lower()}.png"
-            
-            # Create Plot with returnfig=True to add labels
             fig, axlist = mpf.plot(df, type='candle', style=s, 
                                    title=f"\nUWS INTEL: {asset['name']} (1m) | {current_est}",
                                    hlines=dict(hlines=list(lvls.values()), colors='#C0C0C0', linewidths=1.2, alpha=0.6),
                                    returnfig=True, figscale=1.6, tight_layout=True)
-            
-            # Add labels on the right
             ax = axlist[0]
             for label, price in lvls.items():
                 ax.text(len(df) + 2, price, label, color='#C0C0C0', fontsize=8, va='center')
@@ -106,7 +97,6 @@ def main():
             fig.savefig(fname, facecolor=fig.get_facecolor())
             plt.close(fig)
             
-            # Attach file and add chart embed
             files[f"file{i}"] = open(fname, 'rb')
             embeds.append({
                 "title": f"📈 {asset['name']} ANALYSIS",
@@ -116,7 +106,6 @@ def main():
             })
 
     if webhook:
-        # One post, ordered list of embeds
         payload = {"payload_json": requests.utils.quote(str({"embeds": embeds}))}
         requests.post(webhook, files=files, data=payload)
         for f in files.values(): f.close()
