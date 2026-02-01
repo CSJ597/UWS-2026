@@ -1,60 +1,59 @@
 import requests
 import os
-import time
 from datetime import datetime, timezone
 
+def get_ticker_news(api_key):
+    if not api_key: return "⚠️ *FINNHUB_API_KEY missing.*"
+    url = f"https://finnhub.io/api/v1/news?category=general&token={api_key}"
+    try:
+        data = requests.get(url, timeout=10).json()
+        assets = {"Gold": ["gold", "xau"], "Nasdaq": ["nasdaq", "tech", "nq"]}
+        found = {asset: None for asset in assets}
+        for item in data:
+            for asset, keywords in assets.items():
+                if any(k in item['headline'].lower() for k in keywords) and not found[asset]:
+                    title = (item['headline'][:42] + '...') if len(item['headline']) > 45 else item['headline']
+                    found[asset] = f"• **{asset}**: [{title}]({item['url']})"
+        brief = [found[a] for a in assets if found[a]]
+        return "\n".join(brief) if brief else "• No specific asset intel found."
+    except: return "⚠️ *News feed throttled.*"
+
 def main():
-    # --- DEBUG: CHECK SECRETS ---
     webhook = os.getenv("DISCORD_WEBHOOK_URL")
     chart_key = os.getenv("CHART_IMG_KEY")
     finnhub_key = os.getenv("FINNHUB_KEY")
-    layout_id = "Hx0V1y9S"
-
-    print(f"Checking Secrets...")
-    print(f"Webhook URL found: {'Yes' if webhook else 'No'}")
-    print(f"Chart API Key found: {'Yes' if chart_key else 'No'}")
-    print(f"Finnhub Key found: {'Yes' if finnhub_key else 'No'}")
-
-    if not webhook:
-        print("ERROR: DISCORD_WEBHOOK_URL is missing. Check GitHub Secrets.")
-        return
-
-    # --- 1. GET CHART ---
+    
+    # --- GET YOUR SESSION INFO ---
+    # In your browser: F12 > Application > Cookies > sessionid
+    session_id = os.getenv("TV_SESSION_ID") 
+    layout_id = "Hx0V1y9S" 
+    
+    headlines = get_ticker_news(finnhub_key)
+    
+    # --- THE V6 RENDER FIX ---
     image_url = ""
     if chart_key:
-        print(f"Requesting chart for layout {layout_id}...")
         api_url = f"https://api.chart-img.com/v2/tradingview/layout-chart/{layout_id}"
-        headers = {"x-api-key": chart_key}
+        headers = {
+            "x-api-key": chart_key,
+            "tradingview-session-id": session_id # This forces v6 indicators to load
+        }
         payload = {"width": 800, "height": 600, "theme": "dark"}
-        
         try:
-            res = requests.post(api_url, json=payload, headers=headers, timeout=30)
-            res_data = res.json()
-            image_url = res_data.get('url', "")
-            if image_url:
-                print(f"Chart generated successfully: {image_url}")
-            else:
-                print(f"Chart API Error: {res_data.get('message', 'No URL returned')}")
-        except Exception as e:
-            print(f"Chart Connection Failed: {e}")
+            res = requests.post(api_url, json=payload, headers=headers, timeout=25)
+            if res.status_code == 200:
+                image_url = res.json().get('url', "")
+        except: pass
 
-    # --- 2. SEND TO DISCORD ---
-    print("Sending message to Discord...")
     embed = {
         "title": "🏛️ UNDERGROUND UPDATE",
         "color": 0x2ecc71,
-        "description": "System Online. Testing data feeds.",
+        "description": "🟢 **CONDITIONS FAVORABLE**\nClear for Execution",
+        "fields": [{"name": "🗞️ Market Briefing", "value": headlines}],
         "image": {"url": image_url} if image_url else None,
-        "footer": {"text": f"Generated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"}
+        "footer": {"text": "Follow the money, not fake gurus. | UWS Intel Desk"}
     }
-    
-    try:
-        response = requests.post(webhook, json={"embeds": [embed]})
-        print(f"Discord Response Code: {response.status_code}")
-        if response.status_code != 204:
-            print(f"Discord Error: {response.text}")
-    except Exception as e:
-        print(f"Discord Send Failed: {e}")
+    requests.post(webhook, json={"embeds": [embed]})
 
 if __name__ == "__main__":
     main()
