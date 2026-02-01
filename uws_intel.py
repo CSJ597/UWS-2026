@@ -86,10 +86,7 @@ def main():
     eco_intel, embed_color = get_economic_intel(finnhub_key)
     briefing = get_finnhub_news(finnhub_key, {"Gold": ["gold", "xau"], "Nasdaq": ["nasdaq", "tech", "nq"]})
     
-    # Messiah Status Header
     status_header = "🟢 **CONDITIONS FAVORABLE**\n*Clear for Execution*" if embed_color == 0x2ecc71 else "🔴 **CAUTION: HIGH VOLATILITY**\n*Red Folder Intelligence Detected*"
-    
-    # Title Centering
     centered_title = "🏛️      UNDERGROUND UPDATE      🏛️"
 
     embeds = [{
@@ -97,12 +94,12 @@ def main():
         "description": status_header,
         "color": embed_color,
         "fields": [
-            {"name": "\u200B", "value": "\u200B", "inline": False}, # Spacer
+            {"name": "\u200B", "value": "\u200B", "inline": False}, # Top Spacer
             {"name": "📅 Upcoming Economic Events", "value": eco_intel, "inline": False},
-            {"name": "\u200B", "value": "\u200B", "inline": False}, # Spacer
-            {"name": "🗞️ Market Briefing", "value": briefing, "inline": False}
+            {"name": "\u200B", "value": "\u200B", "inline": False}, # Middle Spacer
+            {"name": "🗞️ Market Briefing", "value": briefing, "inline": False},
+            {"name": "\u200B", "value": "\u200B", "inline": False}  # BOTTOM SPACER (Separates from Footer)
         ],
-        # TAGLINE: Back at the bottom, italicized as requested
         "footer": {"text": f"Follow the money, not the fake gurus. | UWS Intel Desk | {current_est}"}
     }]
 
