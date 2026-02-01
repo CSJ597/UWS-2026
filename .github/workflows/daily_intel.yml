@@ -23,5 +23,5 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           CHART_IMG_KEY: ${{ secrets.CHART_IMG_KEY}}
-          FINNHUB_KEY: ${{ secrets.FINNHUB_KEY}}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY}}
         run: python uws_intel.py
