@@ -3,26 +3,23 @@ import os
 import math
 import yfinance as yf
 import pandas as pd
-from datetime import datetime
 
-# --- PINE SCRIPT MATH REPLICATION ---
+# --- THE MESSIAH MATH ---
 def percentile_nearest_rank(arr, percentile):
     if not arr: return 0
     arr_sorted = sorted(arr)
-    # Replicates TV: ceil(P/100 * n) - 1
     index = math.ceil((percentile / 100) * len(arr_sorted)) - 1
     return arr_sorted[max(0, index)]
 
 def get_1m_intel(ticker_symbol, lookback=500):
     print(f"Fetching data for {ticker_symbol}...")
-    # FIX: multi_level_index=False flattens the data so 'Open', 'High' etc. work
+    # multi_level_index=False is critical for flattened columns
     df = yf.download(ticker_symbol, period="2d", interval="1m", multi_level_index=False, progress=False)
     
     if df.empty:
         print(f"FAILED: No data found for {ticker_symbol}")
         return None, None, None
 
-    # Get the last 500 minutes
     window = df.tail(lookback)
     sess_o = window.iloc[0]['Open']
     
@@ -30,6 +27,20 @@ def get_1m_intel(ticker_symbol, lookback=500):
     aL = (sess_o - window['Low']).tolist()
     
     return aH, aL, sess_o
+
+def make_hline(price, label, color):
+    """Helper to build the exact JSON object the Chart-Img API needs for hlines."""
+    return {
+        "name": "horizontal_line",
+        "input": {"price": price},
+        "overrides": {
+            "linecolor": color,
+            "showLabel": True,
+            "text": label,
+            "textcolor": color,
+            "fontsize": 10
+        }
+    }
 
 def main():
     webhook = os.getenv("DISCORD_WEBHOOK_URL")
@@ -45,32 +56,42 @@ def main():
         aH, aL, sess_o = get_1m_intel(asset["symbol"])
         if sess_o is None: continue
 
-        # Calculate Levels
-        drawings = [{"type": "hline", "price": sess_o, "text": "ANCHOR", "color": "red"}]
+        # --- CORRECT DRAWING FORMAT ---
+        drawings = [make_hline(sess_o, "ANCHOR", "#ff0000")]
         for p in [50, 75, 90]:
-            drawings.append({"type": "hline", "price": sess_o + percentile_nearest_rank(aH, p), "text": f"P{p} H", "color": "white"})
-            drawings.append({"type": "hline", "price": sess_o - percentile_nearest_rank(aL, p), "text": f"P{p} L", "color": "#008fff"})
+            drawings.append(make_hline(sess_o + percentile_nearest_rank(aH, p), f"P{p} H", "#ffffff"))
+            drawings.append(make_hline(sess_o - percentile_nearest_rank(aL, p), f"P{p} L", "#008fff"))
 
-        # Request Chart
-        payload = {"symbol": asset["tv_symbol"], "interval": "1", "drawings": drawings, "theme": "dark"}
+        # --- CORRECT API PAYLOAD ---
+        payload = {
+            "symbol": asset["tv_symbol"],
+            "interval": "1m", # Fixed from "1" to "1m"
+            "drawings": drawings,
+            "theme": "dark",
+            "width": 800,
+            "height": 600
+        }
+        
+        headers = {"x-api-key": chart_key}
         res = requests.post("https://api.chart-img.com/v2/tradingview/advanced-chart/storage",
-                            json=payload, headers={"x-api-key": chart_key})
+                            json=payload, headers=headers, timeout=60)
         
         if res.status_code == 200:
+            image_url = res.json().get('url', "")
             embeds.append({
                 "title": f"🏛️ UWS 1M INTEL: {asset['name']}",
                 "color": 0x2ecc71 if "NQ" in asset["name"] else 0xf1c40f,
                 "description": f"Lookback: **500 bars (1m)**\nAnchor Open: **{round(sess_o, 2)}**",
-                "image": {"url": res.json().get('url')},
+                "image": {"url": image_url},
                 "footer": {"text": "UWS Intel Desk | Follow the Money"}
             })
-            print(f"Chart generated for {asset['name']}")
+            print(f"Chart Success for {asset['name']}")
         else:
-            print(f"Chart-Img Error {res.status_code}: {res.text}")
+            print(f"Chart API Error {res.status_code}: {res.text}")
 
     if webhook and embeds:
-        final_res = requests.post(webhook, json={"embeds": embeds})
-        print(f"Discord Response: {final_res.status_code}")
+        requests.post(webhook, json={"embeds": embeds})
+        print("Update pushed to Discord.")
 
 if __name__ == "__main__":
     main()
