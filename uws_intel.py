@@ -2,81 +2,75 @@ import os
 import math
 import yfinance as yf
 import pandas as pd
+import mplfinance as mpf
 import requests
-from lightweight_charts import Chart
-from datetime import datetime
-import sys
 
 def percentile_nearest_rank(arr, percentile):
+    """Replicates Pine Script's array.percentile_nearest_rank exactly."""
     if not arr: return 0
     arr_sorted = sorted(arr)
     index = math.ceil((percentile / 100) * len(arr_sorted)) - 1
     return arr_sorted[max(0, index)]
 
 def get_data_and_levels(ticker, lookback=500):
-    print(f"Fetching data for {ticker}...")
-    df = yf.download(ticker, period="2d", interval="5m", multi_level_index=False, progress=False)
-    if df.empty: return None, None, None
+    print(f"Fetching {ticker} data...")
+    # Pulling 2 days of 1m data to ensure a full 500-bar window
+    df = yf.download(ticker, period="2d", interval="1m", multi_level_index=False, progress=False)
     
-    df = df.reset_index().rename(columns={'Datetime': 'time', 'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close'})
+    if df.empty:
+        print(f"Error: No data for {ticker}")
+        return None, None, None
+    
     window = df.tail(lookback)
-    sess_o = window.iloc[0]['open']
+    sess_o = window.iloc[0]['Open']
     
-    aH = (window['high'] - sess_o).tolist()
-    aL = (sess_o - window['low']).tolist()
+    # Calculate multipliers for historical session movement
+    aH = (window['High'] - sess_o).tolist()
+    aL = (sess_o - window['Low']).tolist()
     
-    levels = {
-        "P50": (sess_o + percentile_nearest_rank(aH, 50), sess_o - percentile_nearest_rank(aL, 50)),
-        "P75": (sess_o + percentile_nearest_rank(aH, 75), sess_o - percentile_nearest_rank(aL, 75)),
-        "P90": (sess_o + percentile_nearest_rank(aH, 90), sess_o - percentile_nearest_rank(aL, 90))
-    }
-    return df, levels, sess_o
-
-def generate_chart(df, levels, sess_o, name):
-    print(f"Generating chart for {name}...")
-    # Headless mode for GitHub Actions
-    chart = Chart(width=1200, height=800) 
-    chart.layout(background_color='#0c0d10', text_color='#FFFFFF', font_size=12)
-    
-    chart.set(df)
-    
-    # Levels
-    chart.horizontal_line(sess_o, color='#ff0000', width=2, text="ANCHOR")
-    for p_name, (h, l) in levels.items():
-        chart.horizontal_line(h, color='#ffffff', width=1, text=f"{p_name} H")
-        chart.horizontal_line(l, color='#008fff', width=1, text=f"{p_name} L")
-    
-    filename = f"{name.lower()}_chart.png"
-    
-    # Force render and save
-    chart.show() 
-    img_data = chart.screenshot()
-    if img_data:
-        with open(filename, 'wb') as f:
-            f.write(img_data)
-        print(f"Saved: {filename}")
-    
-    chart.exit()
-    return filename
+    # Organize levels for the hlines plot
+    levels = [
+        sess_o, # Anchor (Index 0)
+        sess_o + percentile_nearest_rank(aH, 50), sess_o - percentile_nearest_rank(aL, 50), # P50 (Indices 1, 2)
+        sess_o + percentile_nearest_rank(aH, 75), sess_o - percentile_nearest_rank(aL, 75), # P75 (Indices 3, 4)
+        sess_o + percentile_nearest_rank(aH, 90), sess_o - percentile_nearest_rank(aL, 90)  # P90 (Indices 5, 6)
+    ]
+    return window, levels, sess_o
 
 def main():
     webhook = os.getenv("DISCORD_WEBHOOK_URL")
-    assets = [{"symbol": "NQ=F", "name": "Nasdaq"}, {"symbol": "GC=F", "name": "Gold"}]
+    if not webhook:
+        print("Error: DISCORD_WEBHOOK_URL not set.")
+        return
+
+    assets = [
+        {"symbol": "NQ=F", "name": "Nasdaq"}, 
+        {"symbol": "GC=F", "name": "Gold"}
+    ]
     
+    # Custom UWS Brand Styling
+    mc = mpf.make_marketcolors(up='#26a69a', down='#ef5350', edge='inherit', wick='inherit')
+    s = mpf.make_mpf_style(base_mpf_style='nightclouds', marketcolors=mc, gridcolor='#222222', facecolor='#0c0d10')
+
     for asset in assets:
-        try:
-            df, levels, sess_o = get_data_and_levels(asset["symbol"])
-            if df is not None:
-                fname = generate_chart(df, levels, sess_o, asset["name"])
-                
-                with open(fname, 'rb') as f:
-                    requests.post(webhook, files={'file': f}, data={'content': f"🏛️ **UWS INTEL: {asset['name']}**\nAnchor: {round(sess_o, 2)}"})
-                print(f"Sent {asset['name']} to Discord.")
-        except Exception as e:
-            print(f"Error on {asset['name']}: {e}")
-    
-    print("Process complete. Exiting.")
-    sys.exit(0) # Force GitHub Action to finish
+        df, levels, sess_o = get_data_and_levels(asset["symbol"])
+        if df is not None:
+            fname = f"{asset['name'].lower()}_uws.png"
+            
+            # Plot the chart with your percentile levels
+            mpf.plot(df, type='candle', style=s, 
+                     title=f"\nUWS INTEL: {asset['name']} (1m)",
+                     hlines=dict(hlines=levels, 
+                                 colors=['red', 'white', 'white', '#008fff', '#008fff', 'yellow', 'yellow'], 
+                                 linewidths=1, alpha=0.7),
+                     savefig=fname, width_config=dict(candle_linewidth=0.8),
+                     tight_layout=True)
+            
+            # Upload the actual file to Discord
+            with open(fname, 'rb') as f:
+                payload = {"content": f"🏛️ **UWS 1M INTEL: {asset['name']}**\nLookback: 500 bars | Anchor: {round(sess_o, 2)}"}
+                requests.post(webhook, files={'file': f}, data=payload)
+            print(f"Successfully sent {asset['name']} update.")
 
 if __name__ == "__main__":
     main()
