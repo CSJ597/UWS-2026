@@ -86,23 +86,26 @@ def main():
     eco_intel, embed_color = get_economic_intel(finnhub_key)
     briefing = get_finnhub_news(finnhub_key, {"Gold": ["gold", "xau"], "Nasdaq": ["nasdaq", "tech", "nq"]})
     
-    status_header = "🟢 **CONDITIONS FAVORABLE**\n*Clear for Execution*" if embed_color == 0x2ecc71 else "🔴 **CAUTION: HIGH VOLATILITY**\n*Red Folder Intelligence Detected*"
+    # --- SPATIAL FIX: Adding \n to status_header creates the top gap ---
+    if embed_color == 0x2ecc71:
+        status_header = "\n\u200B\n🟢 **CONDITIONS FAVORABLE**\n*Clear for Execution*"
+    else:
+        status_header = "\n\u200B\n🔴 **CAUTION: HIGH VOLATILITY**\n*Red Folder Intelligence Detected*"
     
     # --- CENTERING HACK ---
-    # \u2002 is an En Space (wider than normal space). Adjust number of spaces to tune centering.
     spaces = "\u2002" * 12 
-    centered_title = f" 🏦 UNDERGROUND UPDATE 🏦"
+    centered_title = f"{spaces}🏦  UNDERGROUND UPDATE  🏦"
 
     embeds = [{
         "title": centered_title,
         "description": status_header,
         "color": embed_color,
         "fields": [
-            {"name": "\u200B", "value": "\u200B", "inline": False}, # Top Spacer
+            {"name": "\u200B", "value": "\u200B", "inline": False}, # Middle Spacer
             {"name": "📅 Upcoming Economic Events", "value": eco_intel, "inline": False},
             {"name": "\u200B", "value": "\u200B", "inline": False}, # Middle Spacer
             {"name": "🗞️ Market Briefing", "value": briefing, "inline": False},
-            {"name": "\u200B", "value": "\u200B", "inline": False}  # Bottom Spacer (Gap for Footer)
+            {"name": "\u200B", "value": "\u200B", "inline": False}  # Bottom Spacer
         ],
         "footer": {"text": f"Follow the money, not the fake gurus. | UWS Intel Desk | {current_est}"}
     }]
