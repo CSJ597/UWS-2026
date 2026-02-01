@@ -5,7 +5,7 @@ import pandas as pd
 import mplfinance as mpf
 import requests
 import json
-from datetime import datetime
+from datetime import datetime, time
 import pytz
 import matplotlib.pyplot as plt
 
@@ -21,27 +21,44 @@ def format_est_time():
     return datetime.now(est).strftime('%I:%M %p EST')
 
 def get_market_briefing(api_key):
-    if not api_key: return "• News feed offline (Check Secret)."
+    if not api_key: return "• News feed offline."
     url = f"https://finnhub.io/api/v1/news?category=general&token={api_key}"
     try:
         data = requests.get(url, timeout=10).json()
         assets = {"Gold": ["gold", "xau"], "Nasdaq": ["nasdaq", "tech", "nq"]}
-        found = {asset: "• No major headlines found." for asset in assets}
+        found = {asset: "• No major headlines." for asset in assets}
         for item in data[:30]:
             headline = item['headline']
             for asset, keywords in assets.items():
-                if any(k in headline.lower() for k in keywords) and found[asset] == "• No major headlines found.":
-                    found[asset] = f"• **{asset}**: {headline[:85]}..."
+                if any(k in headline.lower() for k in keywords) and found[asset] == "• No major headlines.":
+                    found[asset] = f"• **{asset}**: {headline[:80]}..."
         return "\n".join(found.values())
-    except: return "• Market Briefing throttled."
+    except: return "• Briefing throttled."
 
-def get_data_and_levels(ticker, lookback=500):
-    df = yf.download(ticker, period="2d", interval="1m", multi_level_index=False, progress=False)
+# --- 2. THE PRECISION FILTER ---
+def get_precision_data(ticker):
+    print(f"Syncing {ticker} to 8:30 AM EST...")
+    # Pull 1m data for the last 5 days to ensure we have the morning open
+    df = yf.download(ticker, period="5d", interval="1m", multi_level_index=False, progress=False)
     if df.empty: return None, None, None
-    window = df.tail(lookback)
+
+    # Convert Index to EST
+    df.index = df.index.tz_convert('US/Eastern')
+    
+    # Filter for TODAY'S session starting at 8:30 AM
+    today = datetime.now(pytz.timezone('US/Eastern')).date()
+    # If it's Sunday/Monday morning, it handles the most recent Friday or Current day
+    session_start = datetime.combine(df.index[-1].date(), time(8, 30)).replace(tzinfo=pytz.timezone('US/Eastern'))
+    
+    window = df[df.index >= session_start]
+    if window.empty:
+        print(f"Market not open yet for {ticker}. Using last 500 bars.")
+        window = df.tail(500)
+        
     sess_o = window.iloc[0]['Open']
     aH = (window['High'] - sess_o).tolist()
     aL = (sess_o - window['Low']).tolist()
+    
     lvls = {
         "ANCHOR": sess_o,
         "P50 H": sess_o + percentile_nearest_rank(aH, 50), "P50 L": sess_o - percentile_nearest_rank(aL, 50),
@@ -50,7 +67,7 @@ def get_data_and_levels(ticker, lookback=500):
     }
     return window, lvls, sess_o
 
-# --- 2. MAIN EXECUTION ---
+# --- 3. MAIN EXECUTION ---
 def main():
     webhook = os.getenv("DISCORD_WEBHOOK_URL")
     finnhub_key = os.getenv("FINNHUB_KEY")
@@ -65,40 +82,32 @@ def main():
     mc = mpf.make_marketcolors(up='#00ffbb', down='#ff3366', edge='inherit', wick='inherit')
     s = mpf.make_mpf_style(base_mpf_style='nightclouds', marketcolors=mc, gridcolor='#1a1a1a', facecolor='#050505')
 
-    # Start the "Multipart" payload
-    files = {}
-    embeds = [{
+    files, embeds = {}, [{
         "title": "🏛️ UNDERGROUND UPDATE",
-        "description": "🟢 **CONDITIONS FAVORABLE**\nClear for Execution",
+        "description": "🟢 **CONDITIONS FAVORABLE**\nExecution Intel Delivered",
         "color": 0x2ecc71,
         "fields": [
-            {"name": "📅 Upcoming Economic Intelligence", "value": "No major releases. Watch session extremes."},
+            {"name": "📅 Intelligence", "value": "Session starts at 8:30 AM EST. Follow the money."},
             {"name": "🗞️ Market Briefing", "value": briefing}
         ],
-        "footer": {"text": f"Follow the money, not fake gurus. | UWS Intel Desk | {current_est}"}
+        "footer": {"text": f"UWS Intel Desk | {current_est}"}
     }]
 
     for i, asset in enumerate(assets):
-        df, lvls, sess_o = get_data_and_levels(asset["symbol"])
+        df, lvls, sess_o = get_precision_data(asset["symbol"])
         if df is not None:
             fname = f"{asset['name'].lower()}.png"
             fig, axlist = mpf.plot(df, type='candle', style=s, 
-                                   title=f"\nUWS INTEL: {asset['name']} (1m) | {current_est}",
-                                   hlines=dict(hlines=list(lvls.values()), colors='#C0C0C0', linewidths=1.2, alpha=0.6),
-                                   returnfig=True, figscale=1.6, tight_layout=True)
-            
-            # Label the levels on the right margin
+                                   title=f"\nUWS {asset['name']} (1m) | Session Start: 8:30 AM",
+                                   hlines=dict(hlines=list(lvls.values()), colors='#C0C0C0', linewidths=1.2, alpha=0.5),
+                                   returnfig=True, figscale=1.8, tight_layout=True)
             ax = axlist[0]
             for label, price in lvls.items():
-                ax.text(len(df) + 2, price, label, color='#C0C0C0', fontsize=8, va='center')
+                ax.text(len(df) + 1, price, label, color='#C0C0C0', fontsize=7, va='center')
 
             fig.savefig(fname, facecolor=fig.get_facecolor())
             plt.close(fig)
-            
-            # Add file to the upload dictionary
             files[f"file{i}"] = (fname, open(fname, 'rb'), 'image/png')
-            
-            # Add analysis card linked to the image
             embeds.append({
                 "title": f"📈 {asset['name']} ANALYSIS",
                 "color": asset["color"],
@@ -107,17 +116,8 @@ def main():
             })
 
     if webhook:
-        # THE FIX: Wrap the json in 'payload_json' for multipart requests
-        payload = {"payload_json": json.dumps({"embeds": embeds})}
-        response = requests.post(webhook, files=files, data=payload)
-        
-        # Cleanup
-        for _, file_tuple in files.items(): file_tuple[1].close()
-        
-        if response.status_code in [200, 204]:
-            print("UWS Update Delivered Successfully.")
-        else:
-            print(f"Failed to send. Error {response.status_code}: {response.text}")
+        requests.post(webhook, files=files, data={"payload_json": json.dumps({"embeds": embeds})})
+        for _, ftup in files.items(): ftup[1].close()
 
 if __name__ == "__main__":
     main()
