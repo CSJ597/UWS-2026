@@ -3,7 +3,7 @@ import os
 from datetime import datetime, timezone
 
 def get_ticker_news(api_key):
-    if not api_key: return "⚠️ *FINNHUB_API_KEY mapping failed.*"
+    if not api_key: return "⚠️ *FINNHUB_API_KEY missing.*"
     url = f"https://finnhub.io/api/v1/news?category=general&token={api_key}"
     try:
         response = requests.get(url, timeout=10)
@@ -29,28 +29,33 @@ def main():
 
     headlines = get_ticker_news(finnhub_key)
 
-    # --- THE v6 LAYOUT FIX ---
     image_url = ""
     if chart_key:
         api_url = f"https://api.chart-img.com/v2/tradingview/layout-chart/{layout_id}"
-        headers = {
-            "x-api-key": chart_key,
-            "tradingview-session-id": session_id # Authenticates your v6 indicators
-        }
+        headers = {"x-api-key": chart_key}
+        if session_id:
+            headers["tradingview-session-id"] = session_id
+        
         payload = {"width": 800, "height": 600, "theme": "dark"}
         
         try:
-            # We increase timeout to 60s because v6 scripts take longer to compile
             res = requests.post(api_url, json=payload, headers=headers, timeout=60)
             print(f"API Status: {res.status_code}")
             
             if res.status_code == 200:
                 image_url = res.json().get('url', "")
-                print(f"Chart URL: {image_url}")
-            else:
-                print(f"API Error Response: {res.text}")
+            elif res.status_code == 403:
+                print("FORBIDDEN: Layout sharing is OFF on TradingView.")
+                # FALLBACK: Try a generic Nasdaq chart so the message isn't empty
+                print("Attempting fallback to generic Nasdaq chart...")
+                fallback_res = requests.post(
+                    "https://api.chart-img.com/v2/tradingview/advanced-chart/storage",
+                    json={"symbol": "CME_MINI:NQ1!", "width": 800, "height": 600, "theme": "dark"},
+                    headers={"x-api-key": chart_key}
+                )
+                image_url = fallback_res.json().get('url', "")
         except Exception as e:
-            print(f"Connection error: {e}")
+            print(f"Request failed: {e}")
 
     embed = {
         "title": "🏛️ UNDERGROUND UPDATE",
