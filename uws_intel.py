@@ -2,26 +2,45 @@ import requests
 import os
 from datetime import datetime, timezone
 
-def get_market_news(api_key):
-    """Fetches news and shortens titles for a cleaner terminal look."""
+def get_ticker_news(api_key):
+    """Fetches one shortened article for GC (Gold), NQ (Nasdaq), and ES (S&P 500)."""
     if not api_key:
         return "⚠️ *System Error: FINNHUB_API_KEY mapping failed.*"
     
+    # Mapping Finnhub categories/symbols for your specific assets
+    # Note: Finnhub uses general market categories for futures-related news
+    symbols = {"Gold": "GC=F", "Nasdaq": "NQ=F", "ES": "ES=F"}
+    news_brief = []
+    
+    # Category 'general' is most reliable for broad index/commodity news
     url = f"https://finnhub.io/api/v1/news?category=general&token={api_key}"
+    
     try:
         response = requests.get(url, timeout=10)
         data = response.json()
-        if isinstance(data, list) and len(data) > 0:
-            headlines = []
-            for n in data[:3]:
-                title = n['headline']
-                # Shorten to 60 characters for institutional look
-                short_title = (title[:57] + '...') if len(title) > 60 else title
-                headlines.append(f"• [{short_title}]({n['url']})")
-            return "\n".join(headlines)
-        return "⚠️ *No fresh headlines found.*"
+        
+        # We search the general feed for relevant keywords to ensure one per asset
+        assets = ["Gold", "Nasdaq", "S&P 500"]
+        found_articles = {asset: None for asset in assets}
+        
+        for item in data:
+            headline = item['headline']
+            for asset in assets:
+                if asset.lower() in headline.lower() and found_articles[asset] is None:
+                    # Shorten title to 50 chars for the "Underground" look
+                    short_title = (headline[:47] + '...') if len(headline) > 50 else headline
+                    found_articles[asset] = f"• **{asset}**: [{short_title}]({item['url']})"
+        
+        # Collect results, use fallbacks if specific keyword not found in recent 50 articles
+        for asset in assets:
+            if found_articles[asset]:
+                news_brief.append(found_articles[asset])
+            else:
+                news_brief.append(f"• **{asset}**: Awaiting specific {asset} intel...")
+                
+        return "\n".join(news_brief)
     except:
-        return "⚠️ *Finnhub API connection error.*"
+        return "⚠️ *Market intelligence feed temporarily throttled.*"
 
 def get_economic_calendar():
     url = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
@@ -50,7 +69,7 @@ def main():
     layout_id = "Hx0V1y9S"
     
     today_news, upcoming_news = get_economic_calendar()
-    headlines = get_market_news(finnhub_key)
+    headlines = get_ticker_news(finnhub_key)
     
     # Status Logic
     status_text, side_color = ("⚠️ **VOLATILITY ALERT**", 0xe74c3c) if today_news else ("🟢 **CONDITIONS FAVORABLE**", 0x2ecc71)
@@ -67,23 +86,17 @@ def main():
     # --- THE CHART FIX ---
     image_url = ""
     if chart_key:
-        # Using the advanced storage endpoint to ensure Discord unfurls the image
-        api_url = f"https://api.chart-img.com/v2/tradingview/advanced-chart/storage"
+        # We use the layout-chart endpoint specifically for your Hx0V1y9S setup
+        api_url = f"https://api.chart-img.com/v2/tradingview/layout-chart/{layout_id}"
         headers = {"x-api-key": chart_key}
-        payload = {
-            "symbol": "CME_MINI:NQ1!",
-            "layout": layout_id,
-            "width": 1200, 
-            "height": 800, 
-            "theme": "dark"
-        }
+        payload = {"width": 1200, "height": 800, "theme": "dark"}
         try:
             res = requests.post(api_url, json=payload, headers=headers, timeout=20)
             image_url = res.json().get('url', "")
         except: pass
 
     embed = {
-        "title": "🏛️ UWS INSTITUTIONAL TERMINAL: NASDAQ",
+        "title": "🏛️ UNDERGROUND UPDATE",
         "color": side_color,
         "description": f"{status_text}\n{status_sub}\n\n**{intel_title}**\n{intel_detail}",
         "fields": [{"name": "🗞️ Market Briefing", "value": headlines}],
