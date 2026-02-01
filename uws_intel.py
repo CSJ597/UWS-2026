@@ -41,7 +41,7 @@ def main():
     webhook = os.getenv("DISCORD_WEBHOOK_URL")
     chart_key = os.getenv("CHART_IMG_KEY")
     finnhub_key = os.getenv("FINNHUB_KEY")
-    chart_id = "Hx0V1y9S"
+    layout_id = "Hx0V1y9S"
     
     today_news, upcoming_news = get_economic_calendar()
     headlines = get_market_news(finnhub_key)
@@ -50,26 +50,32 @@ def main():
     status_text, side_color = ("⚠️ **VOLATILITY ALERT**", 0xe74c3c) if today_news else ("🟢 **CONDITIONS FAVORABLE**", 0x2ecc71)
     status_sub = "Heightened Volatility Anticipated" if today_news else "Clear for Execution"
     
+    # --- News Section Branding ---
     if today_news:
+        intel_title = "Today's High Impact News"
         intel_detail = "\n".join([f"-# {e}" for e in today_news])
     else:
+        intel_title = "Upcoming Economic Intelligence"
         next_e = upcoming_news[0] if upcoming_news else None
         intel_detail = f"-# Next Event: {next_e['title']} ({next_e['date']} @ {next_e['time']})" if next_e else "-# No major releases."
 
     # --- THE CHART FIX ---
     image_url = ""
     if chart_key:
-        api_url = f"https://api.chart-img.com/v2/tradingview/layout-chart/{chart_id}"
+        # We use the v2 layout-chart endpoint to pull your specific indicators
+        api_url = f"https://api.chart-img.com/v2/tradingview/layout-chart/{layout_id}"
         headers = {"x-api-key": chart_key}
+        payload = {"width": 1200, "height": 800, "theme": "dark"}
         try:
-            res = requests.post(api_url, json={"width": 1000, "height": 600, "theme": "dark"}, headers=headers, timeout=20)
+            res = requests.post(api_url, json=payload, headers=headers, timeout=20)
+            # We must get the 'url' key from the JSON response
             image_url = res.json().get('url', "")
         except: pass
 
     embed = {
         "title": "🏛️ UWS INSTITUTIONAL TERMINAL: NASDAQ",
         "color": side_color,
-        "description": f"{status_text}\n{status_sub}\n\n**Economic Intel**\n{intel_detail}",
+        "description": f"{status_text}\n{status_sub}\n\n**{intel_title}**\n{intel_detail}",
         "fields": [{"name": "🗞️ Market Briefing", "value": headlines}],
         "image": {"url": image_url},
         "footer": {"text": "Follow the money, not fake gurus. | UWS Intel Desk"}
