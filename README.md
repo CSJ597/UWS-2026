@@ -1,3 +1,2 @@
 # UWS-2026
-Updates
-new updates
+Underground Wall Street Daily Updates: 1m Opening Levels, News, Articles
