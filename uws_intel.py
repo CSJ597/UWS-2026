@@ -20,58 +20,85 @@ def format_est_time():
     est = pytz.timezone('US/Eastern')
     return datetime.now(est).strftime('%I:%M %p EST')
 
+# --- 2. INTEL GATHERING ---
+def get_market_briefing(api_key):
+    if not api_key: return "• News feed offline (Missing Key)."
+    url = f"https://finnhub.io/api/v1/news?category=general&token={api_key}"
+    try:
+        data = requests.get(url, timeout=10).json()
+        assets = {"Gold": ["gold", "xau"], "Nasdaq": ["nasdaq", "tech", "nq"]}
+        found = {asset: "• No major headlines found." for asset in assets}
+        for item in data[:30]:
+            headline = item['headline']
+            for asset, keywords in assets.items():
+                if any(k in headline.lower() for k in keywords) and found[asset] == "• No major headlines found.":
+                    found[asset] = f"• **{asset}**: {headline[:85]}..."
+        return "\n".join(found.values())
+    except: return "• Market Briefing throttled."
+
 def get_data_and_levels(ticker, lookback=500):
     print(f"Fetching {ticker}...")
     df = yf.download(ticker, period="2d", interval="1m", multi_level_index=False, progress=False)
     if df.empty: return None, None, None
-    
     window = df.tail(lookback)
     sess_o = window.iloc[0]['Open']
-    
     aH = (window['High'] - sess_o).tolist()
     aL = (sess_o - window['Low']).tolist()
     
-    # Unified Level Map
+    # Levels dictionary
     lvls = {
         "ANCHOR": sess_o,
-        "P50 H": sess_o + percentile_nearest_rank(aH, 50),
-        "P50 L": sess_o - percentile_nearest_rank(aL, 50),
-        "P75 H": sess_o + percentile_nearest_rank(aH, 75),
-        "P75 L": sess_o - percentile_nearest_rank(aL, 75),
-        "P90 H": sess_o + percentile_nearest_rank(aH, 90),
-        "P90 L": sess_o - percentile_nearest_rank(aL, 90)
+        "P50 H": sess_o + percentile_nearest_rank(aH, 50), "P50 L": sess_o - percentile_nearest_rank(aL, 50),
+        "P75 H": sess_o + percentile_nearest_rank(aH, 75), "P75 L": sess_o - percentile_nearest_rank(aL, 75),
+        "P90 H": sess_o + percentile_nearest_rank(aH, 90), "P90 L": sess_o - percentile_nearest_rank(aL, 90)
     }
     return window, lvls, sess_o
 
-# --- 2. MAIN EXECUTION ---
+# --- 3. MAIN EXECUTION ---
 def main():
     webhook = os.getenv("DISCORD_WEBHOOK_URL")
+    finnhub_key = os.getenv("FINNHUB_KEY")
+    current_est = format_est_time()
+    briefing = get_market_briefing(finnhub_key)
     
     # ORDERED: GC first, then NQ
     assets = [
-        {"symbol": "GC=F", "name": "GC"},
-        {"symbol": "NQ=F", "name": "NQ"}
+        {"symbol": "GC=F", "name": "GC", "color": 0xf1c40f},
+        {"symbol": "NQ=F", "name": "NQ", "color": 0x2ecc71}
     ]
     
-    # Premium UWS Brand Colors
+    # Custom UWS Styling
     mc = mpf.make_marketcolors(up='#00ffbb', down='#ff3366', edge='inherit', wick='inherit')
     s = mpf.make_mpf_style(base_mpf_style='nightclouds', marketcolors=mc, gridcolor='#1a1a1a', facecolor='#050505')
 
-    current_est = format_est_time()
+    files = {}
+    # Embed 0: The Update Briefing
+    embeds = [
+        {
+            "title": "🏛️ UNDERGROUND UPDATE",
+            "description": "🟢 **CONDITIONS FAVORABLE**\nClear for Execution",
+            "color": 0x2ecc71,
+            "fields": [
+                {"name": "📅 Upcoming Economic Intelligence", "value": "No major releases today. Watch session extremes."},
+                {"name": "🗞️ Market Briefing", "value": briefing}
+            ],
+            "footer": {"text": f"Follow the money, not fake gurus. | UWS Intel Desk | {current_est}"}
+        }
+    ]
 
-    for asset in assets:
+    # Generate charts for GC and NQ
+    for i, asset in enumerate(assets):
         df, lvls, sess_o = get_data_and_levels(asset["symbol"])
         if df is not None:
-            fname = f"{asset['name'].lower()}_uws.png"
+            fname = f"{asset['name'].lower()}.png"
             
-            # Create Plot
+            # Create Plot with returnfig=True to add labels
             fig, axlist = mpf.plot(df, type='candle', style=s, 
-                                   title=f"\nUWS INTEL: {asset['name']} | {current_est}",
+                                   title=f"\nUWS INTEL: {asset['name']} (1m) | {current_est}",
                                    hlines=dict(hlines=list(lvls.values()), colors='#C0C0C0', linewidths=1.2, alpha=0.6),
                                    returnfig=True, figscale=1.6, tight_layout=True)
             
-            # --- ADD LABELS MANUALLY TO THE AXIS ---
-            # This places text labels on the right side for clear UWS branding
+            # Add labels on the right
             ax = axlist[0]
             for label, price in lvls.items():
                 ax.text(len(df) + 2, price, label, color='#C0C0C0', fontsize=8, va='center')
@@ -79,22 +106,21 @@ def main():
             fig.savefig(fname, facecolor=fig.get_facecolor())
             plt.close(fig)
             
-            embed = {
-                "title": f"🏛️ UNDERGROUND UPDATE: {asset['name']}",
-                "description": f"🟢 **CONDITIONS FAVORABLE**\nClear for Execution\n\n**EST Time:** {current_est}",
-                "color": 0xf1c40f if asset['name'] == "GC" else 0x2ecc71,
-                "fields": [
-                    {"name": "📊 Anchor Price", "value": f"`{round(sess_o, 2)}`", "inline": True},
-                    {"name": "📅 Intelligence", "value": "No major releases. Follow the levels.", "inline": True},
-                    {"name": "🗞️ Market Briefing", "value": "Follow the money, not fake gurus."}
-                ],
-                "footer": {"text": f"UWS Intel Desk | 1m Timeframe | {current_est}"}
-            }
-            
-            with open(fname, 'rb') as f:
-                payload = {"payload_json": requests.utils.quote(str({"embeds": [embed]}))}
-                requests.post(webhook, files={'file': f}, data=payload)
-            print(f"Sent {asset['name']} update.")
+            # Attach file and add chart embed
+            files[f"file{i}"] = open(fname, 'rb')
+            embeds.append({
+                "title": f"📈 {asset['name']} ANALYSIS",
+                "color": asset["color"],
+                "image": {"url": f"attachment://{fname}"},
+                "footer": {"text": f"8:30 AM Anchor: {round(sess_o, 2)}"}
+            })
+
+    if webhook:
+        # One post, ordered list of embeds
+        payload = {"payload_json": requests.utils.quote(str({"embeds": embeds}))}
+        requests.post(webhook, files=files, data=payload)
+        for f in files.values(): f.close()
+        print("UWS Intelligence Stream Sent.")
 
 if __name__ == "__main__":
     main()
