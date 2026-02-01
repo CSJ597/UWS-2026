@@ -3,23 +3,14 @@ import os
 from datetime import datetime, timezone
 
 def get_ticker_news(api_key):
-    """Fetches one shortened article for GC (Gold), NQ (Nasdaq), and ES (S&P 500)."""
+    """Fetches one shortened article for Gold, Nasdaq, and ES."""
     if not api_key:
         return "⚠️ *System Error: FINNHUB_API_KEY mapping failed.*"
     
-    # Mapping Finnhub categories/symbols for your specific assets
-    # Note: Finnhub uses general market categories for futures-related news
-    symbols = {"Gold": "GC=F", "Nasdaq": "NQ=F", "ES": "ES=F"}
-    news_brief = []
-    
-    # Category 'general' is most reliable for broad index/commodity news
     url = f"https://finnhub.io/api/v1/news?category=general&token={api_key}"
-    
     try:
         response = requests.get(url, timeout=10)
         data = response.json()
-        
-        # We search the general feed for relevant keywords to ensure one per asset
         assets = ["Gold", "Nasdaq", "S&P 500"]
         found_articles = {asset: None for asset in assets}
         
@@ -27,20 +18,16 @@ def get_ticker_news(api_key):
             headline = item['headline']
             for asset in assets:
                 if asset.lower() in headline.lower() and found_articles[asset] is None:
-                    # Shorten title to 50 chars for the "Underground" look
+                    # Shorten to 50 chars for clean look
                     short_title = (headline[:47] + '...') if len(headline) > 50 else headline
-                    found_articles[asset] = f"• **{asset}**: [{short_title}]({item['url']})"
+                    display_name = "ES" if asset == "S&P 500" else asset
+                    found_articles[asset] = f"• **{display_name}**: [{short_title}]({item['url']})"
         
-        # Collect results, use fallbacks if specific keyword not found in recent 50 articles
-        for asset in assets:
-            if found_articles[asset]:
-                news_brief.append(found_articles[asset])
-            else:
-                news_brief.append(f"• **{asset}**: Awaiting specific {asset} intel...")
-                
-        return "\n".join(news_brief)
+        # Build the final list
+        brief = [found_articles[a] for a in assets if found_articles[a]]
+        return "\n".join(brief) if brief else "• No specific asset intel found."
     except:
-        return "⚠️ *Market intelligence feed temporarily throttled.*"
+        return "⚠️ *Market news feed throttled.*"
 
 def get_economic_calendar():
     url = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
@@ -49,7 +36,6 @@ def get_economic_calendar():
         data = response.json()
         now = datetime.now(timezone.utc)
         today_str = now.strftime("%m-%d-%Y")
-        
         today_events, future_events = [], []
         for event in data:
             if event.get('impact') == 'High' and event.get('country') == 'USD':
@@ -75,23 +61,29 @@ def main():
     status_text, side_color = ("⚠️ **VOLATILITY ALERT**", 0xe74c3c) if today_news else ("🟢 **CONDITIONS FAVORABLE**", 0x2ecc71)
     status_sub = "Heightened Volatility Anticipated" if today_news else "Clear for Execution"
     
+    intel_title = "Today's High Impact News" if today_news else "Upcoming Economic Intelligence"
     if today_news:
-        intel_title = "Today's High Impact News"
         intel_detail = "\n".join([f"-# {e}" for e in today_news])
     else:
-        intel_title = "Upcoming Economic Intelligence"
         next_e = upcoming_news[0] if upcoming_news else None
         intel_detail = f"-# Next Event: {next_e['title']} ({next_e['date']} @ {next_e['time']})" if next_e else "-# No major releases."
 
     # --- THE CHART FIX ---
     image_url = ""
     if chart_key:
-        # We use the layout-chart endpoint specifically for your Hx0V1y9S setup
-        api_url = f"https://api.chart-img.com/v2/tradingview/layout-chart/{layout_id}"
+        # v2 Advanced Chart to Storage - This hosts the image for you
+        api_url = "https://api.chart-img.com/v2/tradingview/advanced-chart/storage"
         headers = {"x-api-key": chart_key}
-        payload = {"width": 1200, "height": 800, "theme": "dark"}
+        payload = {
+            "symbol": "CME_MINI:NQ1!",
+            "layout": layout_id,
+            "width": 1200,
+            "height": 800,
+            "theme": "dark"
+        }
         try:
             res = requests.post(api_url, json=payload, headers=headers, timeout=20)
+            # This returns a URL like 'https://chart-img.com/storage/...'
             image_url = res.json().get('url', "")
         except: pass
 
