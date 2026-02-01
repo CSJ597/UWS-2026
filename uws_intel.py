@@ -91,7 +91,7 @@ def main():
     # --- CENTERING HACK ---
     # \u2002 is an En Space (wider than normal space). Adjust number of spaces to tune centering.
     spaces = "\u2002" * 12 
-    centered_title = f"{spaces}🏛️   UNDERGROUND UPDATE   🏛️"
+    centered_title = f"{spaces}                     🏛️UNDERGROUND UPDATE🏛️"
 
     embeds = [{
         "title": centered_title,
