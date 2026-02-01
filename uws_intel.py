@@ -3,41 +3,42 @@ import os
 from datetime import datetime, timezone
 
 def get_ticker_news(api_key):
-    if not api_key: return "⚠️ *System Error: FINNHUB_API_KEY mapping failed.*"
+    """Fetches one shortened article for Gold, Nasdaq, and ES."""
+    if not api_key: return "⚠️ *FINNHUB_API_KEY mapping failed.*"
     url = f"https://finnhub.io/api/v1/news?category=general&token={api_key}"
     try:
         response = requests.get(url, timeout=10)
         data = response.json()
-        assets = ["Gold", "Nasdaq", "S&P 500"]
-        found_articles = {asset: None for asset in assets}
+        # Mapping assets to search keywords
+        assets = {"Gold": ["gold", "xau"], "Nasdaq": ["nasdaq", "tech", "nq"], "ES": ["s&p 500", "sp500", "market"]}
+        found = {asset: None for asset in assets}
+        
         for item in data:
             headline = item['headline']
-            for asset in assets:
-                if asset.lower() in headline.lower() and found_articles[asset] is None:
-                    short_title = (headline[:47] + '...') if len(headline) > 50 else headline
-                    display_name = "ES" if asset == "S&P 500" else asset
-                    found_articles[asset] = f"• **{display_name}**: [{short_title}]({item['url']})"
-        brief = [found_articles[a] for a in assets if found_articles[a]]
+            for asset, keywords in assets.items():
+                if any(k in headline.lower() for k in keywords) and found[asset] is None:
+                    title = (headline[:47] + '...') if len(headline) > 50 else headline
+                    found[asset] = f"• **{asset}**: [{title}]({item['url']})"
+        
+        brief = [found[a] for a in assets if found[a]]
         return "\n".join(brief) if brief else "• No specific asset intel found."
-    except: return "⚠️ *Market news feed throttled.*"
+    except: return "⚠️ *News feed throttled.*"
 
 def get_economic_calendar():
     url = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
     try:
-        response = requests.get(url, timeout=15)
-        data = response.json()
+        response = requests.get(url, timeout=15).json()
         now = datetime.now(timezone.utc)
         today_str = now.strftime("%m-%d-%Y")
-        today_events, future_events = [], []
-        for event in data:
-            if event.get('impact') == 'High' and event.get('country') == 'USD':
-                event_date, event_time = event.get('date'), event.get('time')
-                event_dt = datetime.strptime(f"{event_date} {event_time}", "%m-%d-%Y %I:%M%p").replace(tzinfo=timezone.utc)
-                if event_date == today_str:
-                    today_events.append(f"🚩 {event['title']} at {event_time}")
-                elif event_dt > now:
-                    future_events.append(event)
-        return today_events, future_events
+        today, future = [], []
+        for e in response:
+            if e.get('impact') == 'High' and e.get('country') == 'USD':
+                dt = datetime.strptime(f"{e['date']} {e['time']}", "%m-%d-%Y %I:%M%p").replace(tzinfo=timezone.utc)
+                if e['date'] == today_str:
+                    today.append(f"🚩 {e['title']} at {e['time']}")
+                elif dt > now:
+                    future.append(e)
+        return today, future
     except: return [], []
 
 def main():
@@ -49,41 +50,30 @@ def main():
     today_news, upcoming_news = get_economic_calendar()
     headlines = get_ticker_news(finnhub_key)
     
-    status_text, side_color = ("⚠️ **VOLATILITY ALERT**", 0xe74c3c) if today_news else ("🟢 **CONDITIONS FAVORABLE**", 0x2ecc71)
-    status_sub = "Heightened Volatility Anticipated" if today_news else "Clear for Execution"
-    intel_title = "Upcoming Economic Intelligence" if not today_news else "Today's High Impact News"
-    
-    if today_news:
-        intel_detail = "\n".join([f"-# {e}" for e in today_news])
-    else:
-        next_e = upcoming_news[0] if upcoming_news else None
-        intel_detail = f"-# Next Event: {next_e['title']} ({next_e['date']} @ {next_e['time']})" if next_e else "-# No major releases."
+    status, color = ("⚠️ **VOLATILITY ALERT**", 0xe74c3c) if today_news else ("🟢 **CONDITIONS FAVORABLE**", 0x2ecc71)
+    sub = "Heightened Volatility Anticipated" if today_news else "Clear for Execution"
+    title = "Upcoming Economic Intelligence" if not today_news else "Today's High Impact News"
+    detail = "\n".join([f"-# {e}" for e in today_news]) if today_news else f"-# Next: {upcoming_news[0]['title']} ({upcoming_news[0]['date']} @ {upcoming_news[0]['time']})" if upcoming_news else "-# No releases."
 
-    # --- THE CHART FIX ---
+    # --- THE RESOLUTION FIX (800x600 for BASIC plan) ---
     image_url = ""
-    debug_msg = ""
     if chart_key:
-        api_url = "https://api.chart-img.com/v2/tradingview/advanced-chart/storage"
+        api_url = f"https://api.chart-img.com/v2/tradingview/layout-chart/{layout_id}"
         headers = {"x-api-key": chart_key}
-        payload = {"symbol": "CME_MINI:NQ1!", "layout": layout_id, "width": 1200, "height": 800, "theme": "dark"}
+        payload = {"width": 800, "height": 600, "theme": "dark"} # Scaled down for free tier
         try:
             res = requests.post(api_url, json=payload, headers=headers, timeout=20)
-            res_data = res.json()
-            image_url = res_data.get('url', "")
-            if not image_url:
-                debug_msg = f"-# 🔍 **Debug:** API Error - {res_data.get('message', 'Unknown Error')}"
-        except Exception as e:
-            debug_msg = f"-# 🔍 **Debug:** Connection Error - {str(e)}"
+            image_url = res.json().get('url', "")
+        except: pass
 
     embed = {
         "title": "🏛️ UNDERGROUND UPDATE",
-        "color": side_color,
-        "description": f"{status_text}\n{status_sub}\n\n**{intel_title}**\n{intel_detail}\n{debug_msg}",
+        "color": color,
+        "description": f"{status}\n{sub}\n\n**{title}**\n{detail}",
         "fields": [{"name": "🗞️ Market Briefing", "value": headlines}],
         "image": {"url": image_url},
         "footer": {"text": "Follow the money, not fake gurus. | UWS Intel Desk"}
     }
-    
     requests.post(webhook, json={"embeds": [embed]})
 
 if __name__ == "__main__":
