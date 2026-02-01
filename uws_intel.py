@@ -72,10 +72,14 @@ def get_precision_data(ticker):
     if window.empty: window = df.tail(500)
     sess_o = window.iloc[0]['Open']
     aH, aL = (window['High'] - sess_o).tolist(), (sess_o - window['Low']).tolist()
-    lvls = {"ANCHOR": sess_o, "P50 H": sess_o + percentile_nearest_rank(aH, 50), "P50 L": sess_o - percentile_nearest_rank(aL, 50),
-            "P75 H": sess_o + percentile_nearest_rank(aH, 75), "P75 L": sess_o - percentile_nearest_rank(aL, 75),
-            "P90 H": sess_o + percentile_nearest_rank(aH, 90), "P90 L": sess_o - percentile_nearest_rank(aL, 90)}
-    return window, lvls, sess_o
+    
+    # Levels dictionary
+    lvls = {
+        "P50 H": sess_o + percentile_nearest_rank(aH, 50), "P50 L": sess_o - percentile_nearest_rank(aL, 50),
+        "P75 H": sess_o + percentile_nearest_rank(aH, 75), "P75 L": sess_o - percentile_nearest_rank(aL, 75),
+        "P90 H": sess_o + percentile_nearest_rank(aH, 90), "P90 L": sess_o - percentile_nearest_rank(aL, 90)
+    }
+    return window, lvls
 
 # --- 3. MAIN EXECUTION ---
 def main():
@@ -86,13 +90,12 @@ def main():
     eco_intel, embed_color = get_economic_intel(finnhub_key)
     briefing = get_finnhub_news(finnhub_key, {"Gold": ["gold", "xau"], "Nasdaq": ["nasdaq", "tech", "nq"]})
     
-    # --- SPATIAL FIX: Adding \n to status_header creates the top gap ---
+    # STATUS: Added extra spacing (\n) to push the title away from the description
     if embed_color == 0x2ecc71:
-        status_header = "\n\u200B\n🟢 **CONDITIONS FAVORABLE**\n*Clear for Execution*"
+        status_header = "\n\n🟢 **CONDITIONS FAVORABLE**\n*Clear for Execution*"
     else:
-        status_header = "\n\u200B\n🔴 **CAUTION: HIGH VOLATILITY**\n*Red Folder Intelligence Detected*"
+        status_header = "\n\n🔴 **CAUTION: HIGH VOLATILITY**\n*Red Folder Intelligence Detected*"
     
-    # --- CENTERING HACK ---
     spaces = "\u2002" * 12 
     centered_title = f"{spaces}🏦  UNDERGROUND UPDATE  🏦"
 
@@ -101,11 +104,11 @@ def main():
         "description": status_header,
         "color": embed_color,
         "fields": [
-            {"name": "\u200B", "value": "\u200B", "inline": False}, # Middle Spacer
+            {"name": "\u200B", "value": "\u200B", "inline": False},
             {"name": "📅 Upcoming Economic Events", "value": eco_intel, "inline": False},
-            {"name": "\u200B", "value": "\u200B", "inline": False}, # Middle Spacer
+            {"name": "\u200B", "value": "\u200B", "inline": False},
             {"name": "🗞️ Market Briefing", "value": briefing, "inline": False},
-            {"name": "\u200B", "value": "\u200B", "inline": False}  # Bottom Spacer
+            {"name": "\u200B", "value": "\u200B", "inline": False}
         ],
         "footer": {"text": f"Follow the money, not the fake gurus. | UWS Intel Desk | {current_est}"}
     }]
@@ -116,22 +119,34 @@ def main():
 
     files = {}
     for i, asset in enumerate(assets):
-        df, lvls, sess_o = get_precision_data(asset["symbol"])
+        df, lvls = get_precision_data(asset["symbol"])
         if df is not None:
             fname = f"{asset['name'].lower()}.png"
-            fig, axlist = mpf.plot(df, type='candle', style=s, title=f"\nUWS {asset['name']} | {df.index[0].strftime('%b %d, %Y')}",
-                                   datetime_format='%I:%M %p', hlines=dict(hlines=list(lvls.values()), colors='#C0C0C0', linewidths=1.2, alpha=0.5),
-                                   returnfig=True, figscale=1.8, tight_layout=True)
+            # Title: Changed to OPENING LEVELS
+            fig, axlist = mpf.plot(df, type='candle', style=s, 
+                                   title=f"\nOPENING LEVELS: {asset['name']} | {df.index[0].strftime('%b %d, %Y')}",
+                                   datetime_format='%I:%M %p', 
+                                   hlines=dict(hlines=list(lvls.values()), colors='#C0C0C0', linewidths=1.2, alpha=0.5),
+                                   returnfig=True, figscale=1.8)
+            
+            # FIX: Adjust the figure margin to make room for labels on the right
+            plt.subplots_adjust(right=0.88)
             ax = axlist[0]
             for label, price in lvls.items():
-                ax.text(len(df) + 1, price, f"{round(price, 2)} - {label}", color='#C0C0C0', fontsize=8, fontweight='bold', va='center')
-            fig.savefig(fname, facecolor=fig.get_facecolor()); plt.close(fig)
+                # Label positioning + price
+                ax.text(len(df) + 1.5, price, f"{round(price, 2)} - {label}", 
+                        color='#C0C0C0', fontsize=8, fontweight='bold', va='center')
+
+            # SAVE FIX: Use bbox_inches='tight' to ensure nothing is clipped
+            fig.savefig(fname, facecolor=fig.get_facecolor(), bbox_inches='tight')
+            plt.close(fig)
+            
             files[f"file{i}"] = (fname, open(fname, 'rb'), 'image/png')
             embeds.append({
-                "title": f"📈 {asset['name']} ANALYSIS",
+                "title": f"📈 {asset['name']} OPENING LEVELS",
                 "color": asset["color"],
                 "image": {"url": f"attachment://{fname}"},
-                "footer": {"text": f"Follow the money, not the fake gurus. | 8:30 AM Anchor: {round(sess_o, 2)}"}
+                "footer": {"text": f"Follow the money, not the fake gurus."}
             })
 
     if webhook:
