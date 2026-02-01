@@ -32,7 +32,9 @@ def get_economic_intel(api_key):
         today, future = [], []
         for e in calendar:
             if e.get('impact') == 3 and e.get('country') == 'US':
-                e_dt = datetime.strptime(e.get('date'), '%Y-%m-%d %H:%M:%S').replace(tzinfo=pytz.utc).astimezone(tz_est)
+                e_date_raw = e.get('date', '')
+                if not e_date_raw: continue
+                e_dt = datetime.strptime(e_date_raw, '%Y-%m-%d %H:%M:%S').replace(tzinfo=pytz.utc).astimezone(tz_est)
                 if e_dt.date() == now.date():
                     diff = int((e_dt - now).total_seconds() // 60)
                     timer = f" (In {diff}m)" if diff > 0 else " (JUST RELEASED)" if diff > -60 else ""
@@ -84,17 +86,15 @@ def main():
     eco_intel, embed_color = get_economic_intel(finnhub_key)
     briefing = get_finnhub_news(finnhub_key, {"Gold": ["gold", "xau"], "Nasdaq": ["nasdaq", "tech", "nq"]})
     
-    # 🏛️ BRANDING: Tagline 2 points bigger + Italicized
-    # We move this to the bottom of the text block for a professional "Closing Quote" look
-    tagline = "### *Follow the money, not the fake gurus.*"
-    status_header = "🟢 **CONDITIONS FAVORABLE**" if embed_color == 0x2ecc71 else "🔴 **CAUTION: HIGH VOLATILITY**"
+    # Messiah Status Header
+    status_header = "🟢 **CONDITIONS FAVORABLE**\n*Clear for Execution*" if embed_color == 0x2ecc71 else "🔴 **CAUTION: HIGH VOLATILITY**\n*Red Folder Intelligence Detected*"
     
-    # PSEUDO-CENTERED TITLE WITH EMOJI WRAP
+    # Title Centering
     centered_title = "🏛️      UNDERGROUND UPDATE      🏛️"
 
     embeds = [{
         "title": centered_title,
-        "description": f"{status_header}\n\n{tagline}", # Tagline moved back to the body for sizing
+        "description": status_header,
         "color": embed_color,
         "fields": [
             {"name": "\u200B", "value": "\u200B", "inline": False}, # Spacer
@@ -102,7 +102,8 @@ def main():
             {"name": "\u200B", "value": "\u200B", "inline": False}, # Spacer
             {"name": "🗞️ Market Briefing", "value": briefing, "inline": False}
         ],
-        "footer": {"text": f"UWS Intel Desk | {current_est}"}
+        # TAGLINE: Back at the bottom, italicized as requested
+        "footer": {"text": f"Follow the money, not the fake gurus. | UWS Intel Desk | {current_est}"}
     }]
 
     assets = [{"symbol": "GC=F", "name": "GC", "color": 0xf1c40f}, {"symbol": "NQ=F", "name": "NQ", "color": 0x2ecc71}]
@@ -122,7 +123,12 @@ def main():
                 ax.text(len(df) + 1, price, f"{round(price, 2)} - {label}", color='#C0C0C0', fontsize=8, fontweight='bold', va='center')
             fig.savefig(fname, facecolor=fig.get_facecolor()); plt.close(fig)
             files[f"file{i}"] = (fname, open(fname, 'rb'), 'image/png')
-            embeds.append({"title": f"📈 {asset['name']} ANALYSIS", "color": asset["color"], "image": {"url": f"attachment://{fname}"}, "footer": {"text": f"8:30 AM Anchor: {round(sess_o, 2)}"}})
+            embeds.append({
+                "title": f"📈 {asset['name']} ANALYSIS",
+                "color": asset["color"],
+                "image": {"url": f"attachment://{fname}"},
+                "footer": {"text": f"Follow the money, not the fake gurus. | 8:30 AM Anchor: {round(sess_o, 2)}"}
+            })
 
     if webhook:
         requests.post(webhook, files=files, data={"payload_json": json.dumps({"embeds": embeds})})
