@@ -1,7 +1,19 @@
 import requests
 import os
-import yfinance as yf
 from datetime import datetime, timezone
+
+def get_market_news():
+    """Fetches high-impact news from Finnhub (Stable alternative to Yahoo)."""
+    api_key = os.getenv("FINNHUB_KEY")
+    # Category 'general' provides the best institutional headlines
+    url = f"https://finnhub.io/api/v1/news?category=general&token={api_key}"
+    try:
+        response = requests.get(url, timeout=10)
+        data = response.json()
+        # Takes the top 3 headlines
+        return "\n".join([f"• [{n['headline']}]({n['url']})" for n in data[:3]])
+    except:
+        return "⚠️ *Market intelligence feed temporarily throttled.*"
 
 def get_economic_calendar():
     url = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
@@ -24,51 +36,47 @@ def get_economic_calendar():
         return today_events, future_events
     except: return [], []
 
-def get_market_news():
-    """Improved news fetcher with a backup to avoid 'Awaiting data' messages."""
-    try:
-        # We try NQ=F first, but fallback to general market news if blocked
-        ticker = yf.Ticker("NQ=F")
-        news = ticker.news[:3]
-        if not news:
-            news = yf.Search("Nasdaq News", news_count=3).news
-        return "\n".join([f"• [{n['title']}]({n['link']})" for n in news])
-    except:
-        return "⚠️ *Data feed temporarily throttled. Check TradingView for live headlines.*"
-
 def main():
     webhook = os.getenv("DISCORD_WEBHOOK_URL")
+    chart_key = os.getenv("CHART_IMG_KEY")
     chart_id = "Hx0V1y9S"
     
     today_news, upcoming_news = get_economic_calendar()
     headlines = get_market_news()
     
-    # --- Professional Logic & Styling ---
+    # --- Professional Logic & Sidebar ---
     if today_news:
-        status_text = "⚠️ **VOLATILITY ALERT**"
-        status_sub = "Heightened Volatility Anticipated"
-        side_color = 0xe74c3c # Red
+        status_text, side_color = "⚠️ **VOLATILITY ALERT**", 0xe74c3c # Red
         intel_detail = "\n".join([f"-# {e}" for e in today_news])
     else:
-        status_text = "🟢 **CONDITIONS FAVORABLE**"
-        status_sub = "Clear for Execution"
-        side_color = 0x2ecc71 # Green
-        if upcoming_news:
-            next_e = upcoming_news[0]
-            intel_detail = f"-# Next Event: {next_e['title']} ({next_e['date']} @ {next_e['time']})"
-        else:
-            intel_detail = "-# No major USD releases scheduled."
+        status_text, side_color = "🟢 **CONDITIONS FAVORABLE**", 0x2ecc71 # Green
+        next_e = upcoming_news[0] if upcoming_news else None
+        intel_detail = f"-# Next Event: {next_e['title']} ({next_e['date']} @ {next_e['time']})" if next_e else "-# No major releases."
 
-    chart_url = f"https://api.chart-img.com/v1/tradingview/advanced-chart/storage?symbol=CME_MINI:NQ1!&layout={chart_id}&height=600&width=1000"
+    # --- ADVANCED CHART FIX ---
+    # Using POST to the v2 storage endpoint with your Chart ID
+    chart_url = f"https://api.chart-img.com/v2/tradingview/advanced-chart/storage"
+    payload = {
+        "symbol": "CME_MINI:NQ1!",
+        "layout": chart_id,
+        "theme": "dark",
+        "height": 600,
+        "width": 1000
+    }
+    headers = {"x-api-key": chart_key}
+    
+    try:
+        res = requests.post(chart_url, json=payload, headers=headers, timeout=20)
+        image_url = res.json().get('url', "")
+    except:
+        image_url = ""
 
     embed = {
         "title": "🏛️ UWS INSTITUTIONAL TERMINAL: NASDAQ",
         "color": side_color,
-        "description": f"{status_text}\n{status_sub}\n\n**Economic Intel**\n{intel_detail}",
-        "fields": [
-            {"name": "🗞️ Market Briefing", "value": headlines, "inline": False}
-        ],
-        "image": {"url": chart_url},
+        "description": f"{status_text}\n\n**Economic Intel**\n{intel_detail}",
+        "fields": [{"name": "🗞️ Market Briefing", "value": headlines}],
+        "image": {"url": image_url},
         "footer": {"text": "Follow the money, not fake gurus. | UWS Intel Desk"}
     }
     
