@@ -3,31 +3,23 @@ import os
 from datetime import datetime, timezone
 
 def get_ticker_news(api_key):
-    """Fetches one shortened article for Gold, Nasdaq, and ES."""
-    if not api_key:
-        return "⚠️ *System Error: FINNHUB_API_KEY mapping failed.*"
-    
+    if not api_key: return "⚠️ *System Error: FINNHUB_API_KEY mapping failed.*"
     url = f"https://finnhub.io/api/v1/news?category=general&token={api_key}"
     try:
         response = requests.get(url, timeout=10)
         data = response.json()
         assets = ["Gold", "Nasdaq", "S&P 500"]
         found_articles = {asset: None for asset in assets}
-        
         for item in data:
             headline = item['headline']
             for asset in assets:
                 if asset.lower() in headline.lower() and found_articles[asset] is None:
-                    # Shorten to 50 chars for clean look
                     short_title = (headline[:47] + '...') if len(headline) > 50 else headline
                     display_name = "ES" if asset == "S&P 500" else asset
                     found_articles[asset] = f"• **{display_name}**: [{short_title}]({item['url']})"
-        
-        # Build the final list
         brief = [found_articles[a] for a in assets if found_articles[a]]
         return "\n".join(brief) if brief else "• No specific asset intel found."
-    except:
-        return "⚠️ *Market news feed throttled.*"
+    except: return "⚠️ *Market news feed throttled.*"
 
 def get_economic_calendar():
     url = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
@@ -57,11 +49,10 @@ def main():
     today_news, upcoming_news = get_economic_calendar()
     headlines = get_ticker_news(finnhub_key)
     
-    # Status Logic
     status_text, side_color = ("⚠️ **VOLATILITY ALERT**", 0xe74c3c) if today_news else ("🟢 **CONDITIONS FAVORABLE**", 0x2ecc71)
     status_sub = "Heightened Volatility Anticipated" if today_news else "Clear for Execution"
+    intel_title = "Upcoming Economic Intelligence" if not today_news else "Today's High Impact News"
     
-    intel_title = "Today's High Impact News" if today_news else "Upcoming Economic Intelligence"
     if today_news:
         intel_detail = "\n".join([f"-# {e}" for e in today_news])
     else:
@@ -70,27 +61,24 @@ def main():
 
     # --- THE CHART FIX ---
     image_url = ""
+    debug_msg = ""
     if chart_key:
-        # v2 Advanced Chart to Storage - This hosts the image for you
         api_url = "https://api.chart-img.com/v2/tradingview/advanced-chart/storage"
         headers = {"x-api-key": chart_key}
-        payload = {
-            "symbol": "CME_MINI:NQ1!",
-            "layout": layout_id,
-            "width": 1200,
-            "height": 800,
-            "theme": "dark"
-        }
+        payload = {"symbol": "CME_MINI:NQ1!", "layout": layout_id, "width": 1200, "height": 800, "theme": "dark"}
         try:
             res = requests.post(api_url, json=payload, headers=headers, timeout=20)
-            # This returns a URL like 'https://chart-img.com/storage/...'
-            image_url = res.json().get('url', "")
-        except: pass
+            res_data = res.json()
+            image_url = res_data.get('url', "")
+            if not image_url:
+                debug_msg = f"-# 🔍 **Debug:** API Error - {res_data.get('message', 'Unknown Error')}"
+        except Exception as e:
+            debug_msg = f"-# 🔍 **Debug:** Connection Error - {str(e)}"
 
     embed = {
         "title": "🏛️ UNDERGROUND UPDATE",
         "color": side_color,
-        "description": f"{status_text}\n{status_sub}\n\n**{intel_title}**\n{intel_detail}",
+        "description": f"{status_text}\n{status_sub}\n\n**{intel_title}**\n{intel_detail}\n{debug_msg}",
         "fields": [{"name": "🗞️ Market Briefing", "value": headlines}],
         "image": {"url": image_url},
         "footer": {"text": "Follow the money, not fake gurus. | UWS Intel Desk"}
