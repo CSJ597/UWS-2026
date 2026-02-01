@@ -26,44 +26,43 @@ def get_market_briefing(api_key):
     try:
         data = requests.get(url, timeout=10).json()
         assets = {"Gold": ["gold", "xau"], "Nasdaq": ["nasdaq", "tech", "nq"]}
-        found = {asset: "• No major headlines." for asset in assets}
+        found = {asset: "• No major headlines found." for asset in assets}
         for item in data[:30]:
             headline = item['headline']
             for asset, keywords in assets.items():
-                if any(k in headline.lower() for k in keywords) and found[asset] == "• No major headlines.":
+                if any(k in headline.lower() for k in keywords) and found[asset] == "• No major headlines found.":
                     found[asset] = f"• **{asset}**: {headline[:80]}..."
         return "\n".join(found.values())
     except: return "• Briefing throttled."
 
-# --- 2. THE PRECISION FILTER ---
+# --- 2. DATA & LEVELS ---
 def get_precision_data(ticker):
-    print(f"Syncing {ticker} to 8:30 AM EST...")
-    # Pull 1m data for the last 5 days to ensure we have the morning open
+    print(f"Fetching {ticker}...")
     df = yf.download(ticker, period="5d", interval="1m", multi_level_index=False, progress=False)
     if df.empty: return None, None, None
-
-    # Convert Index to EST
     df.index = df.index.tz_convert('US/Eastern')
     
-    # Filter for TODAY'S session starting at 8:30 AM
-    today = datetime.now(pytz.timezone('US/Eastern')).date()
-    # If it's Sunday/Monday morning, it handles the most recent Friday or Current day
+    # Session start 8:30 AM
     session_start = datetime.combine(df.index[-1].date(), time(8, 30)).replace(tzinfo=pytz.timezone('US/Eastern'))
-    
     window = df[df.index >= session_start]
+    
+    # Sunday Fallback: If session hasn't started, use Friday's last 500 bars
     if window.empty:
-        print(f"Market not open yet for {ticker}. Using last 500 bars.")
         window = df.tail(500)
         
     sess_o = window.iloc[0]['Open']
     aH = (window['High'] - sess_o).tolist()
     aL = (sess_o - window['Low']).tolist()
     
+    # Map Prices directly to labels
     lvls = {
         "ANCHOR": sess_o,
-        "P50 H": sess_o + percentile_nearest_rank(aH, 50), "P50 L": sess_o - percentile_nearest_rank(aL, 50),
-        "P75 H": sess_o + percentile_nearest_rank(aH, 75), "P75 L": sess_o - percentile_nearest_rank(aL, 75),
-        "P90 H": sess_o + percentile_nearest_rank(aH, 90), "P90 L": sess_o - percentile_nearest_rank(aL, 90)
+        "P50 H": sess_o + percentile_nearest_rank(aH, 50),
+        "P50 L": sess_o - percentile_nearest_rank(aL, 50),
+        "P75 H": sess_o + percentile_nearest_rank(aH, 75),
+        "P75 L": sess_o - percentile_nearest_rank(aL, 75),
+        "P90 H": sess_o + percentile_nearest_rank(aH, 90),
+        "P90 L": sess_o - percentile_nearest_rank(aL, 90)
     }
     return window, lvls, sess_o
 
@@ -84,10 +83,10 @@ def main():
 
     files, embeds = {}, [{
         "title": "🏛️ UNDERGROUND UPDATE",
-        "description": "🟢 **CONDITIONS FAVORABLE**\nExecution Intel Delivered",
+        "description": "🟢 **CONDITIONS FAVORABLE**\n9:00 AM Execution Intel",
         "color": 0x2ecc71,
         "fields": [
-            {"name": "📅 Intelligence", "value": "Session starts at 8:30 AM EST. Follow the money."},
+            {"name": "📅 Intelligence", "value": "8:30 AM EST Data synchronized. Follow the money."},
             {"name": "🗞️ Market Briefing", "value": briefing}
         ],
         "footer": {"text": f"UWS Intel Desk | {current_est}"}
@@ -98,12 +97,15 @@ def main():
         if df is not None:
             fname = f"{asset['name'].lower()}.png"
             fig, axlist = mpf.plot(df, type='candle', style=s, 
-                                   title=f"\nUWS {asset['name']} (1m) | Session Start: 8:30 AM",
+                                   title=f"\nUWS {asset['name']} (1m) | {current_est}",
                                    hlines=dict(hlines=list(lvls.values()), colors='#C0C0C0', linewidths=1.2, alpha=0.5),
                                    returnfig=True, figscale=1.8, tight_layout=True)
             ax = axlist[0]
+            # --- THE PRICE LABEL FIX ---
             for label, price in lvls.items():
-                ax.text(len(df) + 1, price, label, color='#C0C0C0', fontsize=7, va='center')
+                # Placing price + label on the right margin
+                ax.text(len(df) + 1, price, f"{round(price, 2)} - {label}", 
+                        color='#C0C0C0', fontsize=8, fontweight='bold', va='center')
 
             fig.savefig(fname, facecolor=fig.get_facecolor())
             plt.close(fig)
@@ -116,7 +118,8 @@ def main():
             })
 
     if webhook:
-        requests.post(webhook, files=files, data={"payload_json": json.dumps({"embeds": embeds})})
+        payload = {"payload_json": json.dumps({"embeds": embeds})}
+        requests.post(webhook, files=files, data=payload)
         for _, ftup in files.items(): ftup[1].close()
 
 if __name__ == "__main__":
