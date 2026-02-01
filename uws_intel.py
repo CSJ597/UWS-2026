@@ -73,7 +73,6 @@ def get_precision_data(ticker):
     sess_o = window.iloc[0]['Open']
     aH, aL = (window['High'] - sess_o).tolist(), (sess_o - window['Low']).tolist()
     
-    # Levels dictionary
     lvls = {
         "P50 H": sess_o + percentile_nearest_rank(aH, 50), "P50 L": sess_o - percentile_nearest_rank(aL, 50),
         "P75 H": sess_o + percentile_nearest_rank(aH, 75), "P75 L": sess_o - percentile_nearest_rank(aL, 75),
@@ -90,7 +89,6 @@ def main():
     eco_intel, embed_color = get_economic_intel(finnhub_key)
     briefing = get_finnhub_news(finnhub_key, {"Gold": ["gold", "xau"], "Nasdaq": ["nasdaq", "tech", "nq"]})
     
-    # STATUS: Added extra spacing (\n) to push the title away from the description
     if embed_color == 0x2ecc71:
         status_header = "\n\n🟢 **CONDITIONS FAVORABLE**\n*Clear for Execution*"
     else:
@@ -122,28 +120,26 @@ def main():
         df, lvls = get_precision_data(asset["symbol"])
         if df is not None:
             fname = f"{asset['name'].lower()}.png"
-            # Title: Changed to OPENING LEVELS
+            # Title: Indicated as 1m OPENING LEVELS
             fig, axlist = mpf.plot(df, type='candle', style=s, 
-                                   title=f"\nOPENING LEVELS: {asset['name']} | {df.index[0].strftime('%b %d, %Y')}",
+                                   title=f"\n1m OPENING LEVELS: {asset['name']} | {df.index[0].strftime('%b %d, %Y')}",
                                    datetime_format='%I:%M %p', 
                                    hlines=dict(hlines=list(lvls.values()), colors='#C0C0C0', linewidths=1.2, alpha=0.5),
                                    returnfig=True, figscale=1.8)
             
-            # FIX: Adjust the figure margin to make room for labels on the right
-            plt.subplots_adjust(right=0.88)
+            # Subplot Adjustment for Margin
+            plt.subplots_adjust(right=0.85)
             ax = axlist[0]
             for label, price in lvls.items():
-                # Label positioning + price
-                ax.text(len(df) + 1.5, price, f"{round(price, 2)} - {label}", 
+                ax.text(len(df) + 2.5, price, f"{round(price, 2)} - {label}", 
                         color='#C0C0C0', fontsize=8, fontweight='bold', va='center')
 
-            # SAVE FIX: Use bbox_inches='tight' to ensure nothing is clipped
             fig.savefig(fname, facecolor=fig.get_facecolor(), bbox_inches='tight')
             plt.close(fig)
             
             files[f"file{i}"] = (fname, open(fname, 'rb'), 'image/png')
             embeds.append({
-                "title": f"📈 {asset['name']} OPENING LEVELS",
+                "title": f"📈 {asset['name']} 1m OPENING LEVELS",
                 "color": asset["color"],
                 "image": {"url": f"attachment://{fname}"},
                 "footer": {"text": f"Follow the money, not the fake gurus."}
