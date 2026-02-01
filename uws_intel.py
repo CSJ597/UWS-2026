@@ -20,24 +20,37 @@ def format_est_time():
     est = pytz.timezone('US/Eastern')
     return datetime.now(est).strftime('%I:%M %p EST')
 
-def get_red_folders():
-    """Simplified Red Folder check. Replaced complex scraping with reliable API call."""
-    # Placeholder for Red Folder Logic: Looking for High-Impact USD events
-    # For now, it defaults to 'Clear for Execution' if no major USD events are detected.
-    return "No major USD releases today. Watch session extremes."
+def get_finnhub_briefing(api_key):
+    """Restores the Finnhub link-powered briefing."""
+    if not api_key: return "• Intel desk offline (Missing Key)."
+    url = f"https://finnhub.io/api/v1/news?category=general&token={api_key}"
+    try:
+        data = requests.get(url, timeout=10).json()
+        # Filtering for Gold and Nasdaq keywords
+        assets = {"Gold": ["gold", "xau"], "Nasdaq": ["nasdaq", "tech", "nq"]}
+        found = []
+        for item in data[:30]:
+            headline = item['headline']
+            url = item['url']
+            # Using Discord clickable link format: [Text](URL)
+            for asset, keywords in assets.items():
+                if any(k in headline.lower() for k in keywords):
+                    found.append(f"• **{asset}**: [{headline[:75]}...]({url})")
+                    break # Stop looking for other assets once headline is matched
+        return "\n".join(found[:6]) if found else "No major news headlines found."
+    except:
+        return "• Market Briefing throttled."
 
-# --- 2. DATA & LEVELS ---
+# --- 2. THE PRECISION DATA ---
 def get_precision_data(ticker):
-    print(f"Syncing {ticker}...")
+    print(f"Fetching {ticker} data...")
     df = yf.download(ticker, period="5d", interval="1m", multi_level_index=False, progress=False)
     if df.empty: return None, None, None
     df.index = df.index.tz_convert('US/Eastern')
     
     session_start = datetime.combine(df.index[-1].date(), time(8, 30)).replace(tzinfo=pytz.timezone('US/Eastern'))
     window = df[df.index >= session_start]
-    
-    if window.empty:
-        window = df.tail(500)
+    if window.empty: window = df.tail(500)
         
     sess_o = window.iloc[0]['Open']
     aH = (window['High'] - sess_o).tolist()
@@ -54,8 +67,9 @@ def get_precision_data(ticker):
 # --- 3. MAIN EXECUTION ---
 def main():
     webhook = os.getenv("DISCORD_WEBHOOK_URL")
+    finnhub_key = os.getenv("FINNHUB_KEY") # Ensure this is in GitHub Secrets
     current_est = format_est_time()
-    red_folders = get_red_folders()
+    briefing = get_finnhub_briefing(finnhub_key)
     
     assets = [
         {"symbol": "GC=F", "name": "GC", "color": 0xf1c40f},
@@ -67,26 +81,26 @@ def main():
 
     files, embeds = {}, [{
         "title": "🏛️ UNDERGROUND UPDATE",
-        "description": "🟢 **CONDITIONS FAVORABLE**\n9:00 AM Intelligence Stream",
+        "description": "🟢 **CONDITIONS FAVORABLE**\nClear for Execution",
         "color": 0x2ecc71,
         "fields": [
-            {"name": "📅 Upcoming Economic Intelligence", "value": red_folders}
+            {"name": "📅 Upcoming Economic Intelligence", "value": "No major USD releases today. Watch session extremes."},
+            {"name": "🗞️ Market Briefing", "value": briefing}
         ],
-        "footer": {"text": f"Follow the Money | {current_est}"}
+        "footer": {"text": f"Follow the money, not fake gurus. | {current_est}"}
     }]
 
     for i, asset in enumerate(assets):
         df, lvls, sess_o = get_precision_data(asset["symbol"])
         if df is not None:
             fname = f"{asset['name'].lower()}.png"
-            
             fig, axlist = mpf.plot(df, type='candle', style=s, 
                                    title=f"\nUWS {asset['name']} | {df.index[0].strftime('%b %d, %Y')}",
                                    datetime_format='%I:%M %p',
                                    hlines=dict(hlines=list(lvls.values()), colors='#C0C0C0', linewidths=1.2, alpha=0.5),
                                    returnfig=True, figscale=1.8, tight_layout=True)
-            
             ax = axlist[0]
+            # Price Labels on the right margin
             for label, price in lvls.items():
                 ax.text(len(df) + 1, price, f"{round(price, 2)} - {label}", 
                         color='#C0C0C0', fontsize=8, fontweight='bold', va='center')
