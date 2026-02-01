@@ -20,6 +20,7 @@ def format_est_time():
     est = pytz.timezone('US/Eastern')
     return datetime.now(est).strftime('%I:%M %p EST')
 
+# --- 2. INTEL GATHERING ---
 def get_economic_intel(api_key):
     """Detects Today's Red Folders OR finds the Next major USD event."""
     if not api_key: return "No News", 0x2ecc71
@@ -56,6 +57,7 @@ def get_economic_intel(api_key):
     except: return "No News", 0x2ecc71
 
 def get_finnhub_news(api_key, assets):
+    """Exactly one fresh article per instrument with clickable links."""
     if not api_key: return "No News"
     url = f"https://finnhub.io/api/v1/news?category=general&token={api_key}"
     try:
@@ -69,7 +71,7 @@ def get_finnhub_news(api_key, assets):
         return "\n".join(found.values()) if found else "No News"
     except: return "No News"
 
-# --- 2. DATA & LEVELS ---
+# --- 3. DATA & LEVELS ---
 def get_precision_data(ticker):
     print(f"Syncing {ticker}...")
     df = yf.download(ticker, period="5d", interval="1m", multi_level_index=False, progress=False)
@@ -85,23 +87,36 @@ def get_precision_data(ticker):
             "P90 H": sess_o + percentile_nearest_rank(aH, 90), "P90 L": sess_o - percentile_nearest_rank(aL, 90)}
     return window, lvls, sess_o
 
-# --- 3. MAIN EXECUTION ---
+# --- 4. MAIN EXECUTION ---
 def main():
     webhook = os.getenv("DISCORD_WEBHOOK_URL")
     finnhub_key = os.getenv("FINNHUB_KEY")
     current_est = format_est_time()
+    
     eco_intel, embed_color = get_economic_intel(finnhub_key)
     briefing = get_finnhub_news(finnhub_key, {"Gold": ["gold", "xau"], "Nasdaq": ["nasdaq", "tech", "nq"]})
     
     status_msg = "🔴 **CAUTION: HIGH VOLATILITY**\nRed Folder Intelligence Detected" if embed_color == 0xe74c3c else "🟢 **CONDITIONS FAVORABLE**\nClear for Execution"
+
+    # BUILD MASTER EMBED WITH SPACERS (\u200B is an invisible character)
+    embeds = [{
+        "title": "🏛️ UNDERGROUND UPDATE",
+        "description": status_msg,
+        "color": embed_color,
+        "fields": [
+            {"name": "\u200B", "value": "\u200B", "inline": False}, # VERTICAL SPACER
+            {"name": "📅 Upcoming Economic Events", "value": eco_intel, "inline": False},
+            {"name": "\u200B", "value": "\u200B", "inline": False}, # VERTICAL SPACER
+            {"name": "🗞️ Market Briefing", "value": briefing, "inline": False}
+        ],
+        "footer": {"text": f"Follow the money, not fake gurus. | {current_est}"}
+    }]
+
     assets = [{"symbol": "GC=F", "name": "GC", "color": 0xf1c40f}, {"symbol": "NQ=F", "name": "NQ", "color": 0x2ecc71}]
     mc = mpf.make_marketcolors(up='#00ffbb', down='#ff3366', edge='inherit', wick='inherit')
     s = mpf.make_mpf_style(base_mpf_style='nightclouds', marketcolors=mc, gridcolor='#1a1a1a', facecolor='#050505')
 
-    files, embeds = {}, [{"title": "🏛️ UNDERGROUND UPDATE", "description": status_msg, "color": embed_color,
-                          "fields": [{"name": "📅 Upcoming Economic Events", "value": eco_intel}, {"name": "🗞️ Market Briefing", "value": briefing}],
-                          "footer": {"text": f"Follow the money, not fake gurus. | {current_est}"}}]
-
+    files = {}
     for i, asset in enumerate(assets):
         df, lvls, sess_o = get_precision_data(asset["symbol"])
         if df is not None:
@@ -114,17 +129,18 @@ def main():
                 ax.text(len(df) + 1, price, f"{round(price, 2)} - {label}", color='#C0C0C0', fontsize=8, fontweight='bold', va='center')
             fig.savefig(fname, facecolor=fig.get_facecolor()); plt.close(fig)
             
-            # The Critical File Mapping
             files[f"file{i}"] = (fname, open(fname, 'rb'), 'image/png')
-            embeds.append({"title": f"📈 {asset['name']} ANALYSIS", "color": asset["color"], "image": {"url": f"attachment://{fname}"}, 
-                           "footer": {"text": f"8:30 AM Anchor: {round(sess_o, 2)}"}})
+            embeds.append({
+                "title": f"📈 {asset['name']} ANALYSIS",
+                "color": asset["color"],
+                "image": {"url": f"attachment://{fname}"},
+                "footer": {"text": f"8:30 AM Anchor: {round(sess_o, 2)}"}
+            })
 
     if webhook:
-        # Final Payload Wrapping
         payload = {"payload_json": json.dumps({"embeds": embeds})}
-        response = requests.post(webhook, files=files, data=payload)
+        requests.post(webhook, files=files, data=payload)
         for _, ftup in files.items(): ftup[1].close()
-        print(f"Status: {response.status_code}") # Look for 200 or 204 in logs
 
 if __name__ == "__main__":
     main()
