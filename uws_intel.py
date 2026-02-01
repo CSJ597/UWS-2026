@@ -21,7 +21,7 @@ def format_est_time():
     return datetime.now(est).strftime('%I:%M %p EST')
 
 def get_economic_intel(api_key):
-    if not api_key: return "No News", 0x2ecc71
+    if not api_key: return "No News Today.", 0x2ecc71
     tz_est = pytz.timezone('US/Eastern')
     now = datetime.now(tz_est)
     today_str = now.strftime('%Y-%m-%d')
@@ -32,9 +32,7 @@ def get_economic_intel(api_key):
         today, future = [], []
         for e in calendar:
             if e.get('impact') == 3 and e.get('country') == 'US':
-                e_date_raw = e.get('date', '')
-                if not e_date_raw: continue
-                e_dt = datetime.strptime(e_date_raw, '%Y-%m-%d %H:%M:%S').replace(tzinfo=pytz.utc).astimezone(tz_est)
+                e_dt = datetime.strptime(e.get('date'), '%Y-%m-%d %H:%M:%S').replace(tzinfo=pytz.utc).astimezone(tz_est)
                 if e_dt.date() == now.date():
                     diff = int((e_dt - now).total_seconds() // 60)
                     timer = f" (In {diff}m)" if diff > 0 else " (JUST RELEASED)" if diff > -60 else ""
@@ -45,8 +43,8 @@ def get_economic_intel(api_key):
             next_ev = min(future)
             day = "Tomorrow" if (next_ev.date() - now.date()).days == 1 else next_ev.strftime('%A')
             return f"No News Today. Next Major Intel: **{day}**", 0x2ecc71
-        return "No News", 0x2ecc71
-    except: return "No News", 0x2ecc71
+        return "No News Today.", 0x2ecc71
+    except: return "No News Today.", 0x2ecc71
 
 def get_finnhub_news(api_key, assets):
     if not api_key: return "No News"
@@ -87,6 +85,7 @@ def main():
     briefing = get_finnhub_news(finnhub_key, {"Gold": ["gold", "xau"], "Nasdaq": ["nasdaq", "tech", "nq"]})
     
     # 🏛️ BRANDING: Tagline 2 points bigger + Italicized
+    # We move this to the bottom of the text block for a professional "Closing Quote" look
     tagline = "### *Follow the money, not the fake gurus.*"
     status_header = "🟢 **CONDITIONS FAVORABLE**" if embed_color == 0x2ecc71 else "🔴 **CAUTION: HIGH VOLATILITY**"
     
@@ -95,7 +94,7 @@ def main():
 
     embeds = [{
         "title": centered_title,
-        "description": f"{status_header}\n\n{tagline}",
+        "description": f"{status_header}\n\n{tagline}", # Tagline moved back to the body for sizing
         "color": embed_color,
         "fields": [
             {"name": "\u200B", "value": "\u200B", "inline": False}, # Spacer
