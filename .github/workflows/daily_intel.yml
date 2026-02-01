@@ -1,29 +1,26 @@
 name: UWS Daily Intel
 on:
   schedule:
-    - cron: '35 13 * * 1-5' # 8:35 AM EST
-  workflow_dispatch:
+    - cron: '35 13 * * 1-5' # 8:35 AM EST (Monday-Friday)
+  workflow_dispatch:        # Allows you to trigger it manually for testing
 
 jobs:
   run-intel:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Install System Dependencies
+      - name: Install Libraries
         run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb python3-tk python3-dev
+          python -m pip install --upgrade pip
+          pip install requests yfinance pandas mplfinance
 
-      - name: Install Python Libraries
-        run: |
-          pip install requests yfinance pandas numpy lightweight-charts
-
-      - name: Run UWS Script with Virtual Display
+      - name: Run UWS Script
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: xvfb-run python uws_intel.py
+        run: python uws_intel.py
