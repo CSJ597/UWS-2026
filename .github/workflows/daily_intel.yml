@@ -1,7 +1,7 @@
 name: UWS Daily Intel
 on:
   schedule:
-    - cron: '35 13 * * 1-5'
+    - cron: '35 13 * * 1-5' # 8:35 AM EST
   workflow_dispatch:
 
 jobs:
@@ -9,7 +9,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -23,4 +22,5 @@ jobs:
       - name: Run UWS Script
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          FINNHUB_KEY: ${{ secrets.FINNHUB_API_KEY }}
         run: python uws_intel.py
