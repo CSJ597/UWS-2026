@@ -8,6 +8,7 @@ import json
 from datetime import datetime, time
 import pytz
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 # --- 1. CORE LOGIC ---
 def percentile_nearest_rank(arr, percentile):
@@ -37,16 +38,14 @@ def get_market_briefing(api_key):
 
 # --- 2. DATA & LEVELS ---
 def get_precision_data(ticker):
-    print(f"Fetching {ticker}...")
+    print(f"Syncing {ticker}...")
     df = yf.download(ticker, period="5d", interval="1m", multi_level_index=False, progress=False)
     if df.empty: return None, None, None
     df.index = df.index.tz_convert('US/Eastern')
     
-    # Session start 8:30 AM
     session_start = datetime.combine(df.index[-1].date(), time(8, 30)).replace(tzinfo=pytz.timezone('US/Eastern'))
     window = df[df.index >= session_start]
     
-    # Sunday Fallback: If session hasn't started, use Friday's last 500 bars
     if window.empty:
         window = df.tail(500)
         
@@ -54,15 +53,11 @@ def get_precision_data(ticker):
     aH = (window['High'] - sess_o).tolist()
     aL = (sess_o - window['Low']).tolist()
     
-    # Map Prices directly to labels
     lvls = {
         "ANCHOR": sess_o,
-        "P50 H": sess_o + percentile_nearest_rank(aH, 50),
-        "P50 L": sess_o - percentile_nearest_rank(aL, 50),
-        "P75 H": sess_o + percentile_nearest_rank(aH, 75),
-        "P75 L": sess_o - percentile_nearest_rank(aL, 75),
-        "P90 H": sess_o + percentile_nearest_rank(aH, 90),
-        "P90 L": sess_o - percentile_nearest_rank(aL, 90)
+        "P50 H": sess_o + percentile_nearest_rank(aH, 50), "P50 L": sess_o - percentile_nearest_rank(aL, 50),
+        "P75 H": sess_o + percentile_nearest_rank(aH, 75), "P75 L": sess_o - percentile_nearest_rank(aL, 75),
+        "P90 H": sess_o + percentile_nearest_rank(aH, 90), "P90 L": sess_o - percentile_nearest_rank(aL, 90)
     }
     return window, lvls, sess_o
 
@@ -83,10 +78,10 @@ def main():
 
     files, embeds = {}, [{
         "title": "🏛️ UNDERGROUND UPDATE",
-        "description": "🟢 **CONDITIONS FAVORABLE**\n9:00 AM Execution Intel",
+        "description": "🟢 **CONDITIONS FAVORABLE**\n9:00 AM Intelligence Stream",
         "color": 0x2ecc71,
         "fields": [
-            {"name": "📅 Intelligence", "value": "8:30 AM EST Data synchronized. Follow the money."},
+            {"name": "📅 Intelligence", "value": "8:30 AM EST Open Confirmed. Follow the Money."},
             {"name": "🗞️ Market Briefing", "value": briefing}
         ],
         "footer": {"text": f"UWS Intel Desk | {current_est}"}
@@ -96,14 +91,17 @@ def main():
         df, lvls, sess_o = get_precision_data(asset["symbol"])
         if df is not None:
             fname = f"{asset['name'].lower()}.png"
+            
+            # THE TIME FORMAT FIX (%I:%M %p is non-military 12-hour)
             fig, axlist = mpf.plot(df, type='candle', style=s, 
-                                   title=f"\nUWS {asset['name']} (1m) | {current_est}",
+                                   title=f"\nUWS {asset['name']} | {df.index[0].strftime('%b %d, %Y')}",
+                                   datetime_format='%I:%M %p',
                                    hlines=dict(hlines=list(lvls.values()), colors='#C0C0C0', linewidths=1.2, alpha=0.5),
                                    returnfig=True, figscale=1.8, tight_layout=True)
+            
             ax = axlist[0]
-            # --- THE PRICE LABEL FIX ---
             for label, price in lvls.items():
-                # Placing price + label on the right margin
+                # PRICE + LABEL on the right margin
                 ax.text(len(df) + 1, price, f"{round(price, 2)} - {label}", 
                         color='#C0C0C0', fontsize=8, fontweight='bold', va='center')
 
