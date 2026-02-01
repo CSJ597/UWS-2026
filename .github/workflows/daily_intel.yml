@@ -25,5 +25,5 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           CHART_IMG_KEY: ${{ secrets.CHART_IMG_KEY }}
           FINNHUB_KEY: ${{ secrets.FINNHUB_API_KEY }}
-          TV_SESSION_ID: ${{ secrets.TV_SESSION_ID }}
+          TV_SESSION_ID: ${{ secrets.TV_SESSION_ID }} # <--- ESSENTIAL
         run: python uws_intel.py
