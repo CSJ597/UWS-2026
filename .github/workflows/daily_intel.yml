@@ -1,14 +1,15 @@
 name: UWS Daily Intel
 on:
   schedule:
-    - cron: '0 14 * * 1-5' # 9:00 AM EST
-  workflow_dispatch:
+    - cron: '0 14 * * 1-5' # 9:00 AM EST Mon-Fri
+  workflow_dispatch:        # Allows you to click "Run workflow" manually
 
 jobs:
   run-intel:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -24,4 +25,5 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           CHART_IMG_KEY: ${{ secrets.CHART_IMG_KEY }}
           FINNHUB_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          TV_SESSION_ID: ${{ secrets.TV_SESSION_ID }} # <--- ESSENTIAL FOR V6 INDICATORS
         run: python uws_intel.py
