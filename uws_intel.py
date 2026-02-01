@@ -1,57 +1,82 @@
 import requests
 import os
+import yfinance as yf
+from datetime import datetime, timezone
 
-def get_news():
-    """Fetches high-impact USD news from a stable JSON mirror."""
-    # Using a stable CDN mirror for ForexFactory data
+def get_economic_calendar():
+    """Fetches high-impact news and identifies Today vs. Next Upcoming."""
     url = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
     try:
-        r = requests.get(url, timeout=15)
-        if r.status_code == 200:
-            data = r.json()
-            # High impact USD events only
-            return [e['title'] for e in data if e.get('impact') == 'High' and e.get('country') == 'USD']
-    except Exception as e:
-        print(f"News error: {e}")
-    return []
+        response = requests.get(url, timeout=15)
+        data = response.json()
+        
+        now = datetime.now(timezone.utc)
+        today_str = now.strftime("%m-%d-%Y")
+        
+        today_events = []
+        future_events = []
+
+        for event in data:
+            # We only track High Impact USD news for the UWS Desk
+            if event.get('impact') == 'High' and event.get('country') == 'USD':
+                event_date = event.get('date') # Format: "MM-DD-YYYY"
+                event_time = event.get('time') # Format: "9:30am"
+                
+                event_dt = datetime.strptime(f"{event_date} {event_time}", "%m-%d-%Y %I:%M%p").replace(tzinfo=timezone.utc)
+
+                if event_date == today_str:
+                    today_events.append(f"🚩 {event['title']} at **{event_time}**")
+                elif event_dt > now:
+                    future_events.append(event)
+
+        return today_events, future_events
+    except Exception:
+        return [], []
+
+def get_market_news():
+    news = yf.Ticker("NQ=F").news[:3]
+    return "\n".join([f"• [{n['title']}]({n['link']})" for n in news])
 
 def main():
     webhook = os.getenv("DISCORD_WEBHOOK_URL")
-    api_key = os.getenv("CHART_IMG_KEY")
-    layout_id = "Hx0V1y9S" # Your Layout Link ID
+    chart_id = "Hx0V1y9S"
     
-    # 1. Gather News
-    news_list = get_news()
-    news_msg = "\n".join([f"🚩 **{n}**" for n in news_list]) if news_list else "✅ No High Impact News Today"
-    status = "🛑 **RED FOLDER DAY: SQUAT HANDS**" if news_list else "🟢 Clear for Execution"
-
-    # 2. Capture TV Layout Snapshot (V2 API)
-    # Using the 'layout-chart' endpoint captures YOUR exact drawings/indicators
-    image_url = ""
-    if api_key:
-        api_url = f"https://api.chart-img.com/v2/tradingview/layout-chart/{layout_id}"
-        headers = {"x-api-key": api_key}
-        params = {"width": 1000, "height": 600, "theme": "dark"}
+    today_news, upcoming_news = get_economic_calendar()
+    
+    # --- Professional Logic ---
+    if today_news:
+        status_title = "⚠️ VOLATILITY ALERT: HIGH IMPACT DATA"
+        status_desc = "Institutional volatility expected. Focus on liquidity and slippage during release windows."
+        side_color = 0xe74c3c  # Professional Red
+        intel_field = "\n".join(today_news)
+        intel_header = "Today's High Impact Releases"
+    else:
+        status_title = "🟢 CONDITIONS FAVORABLE"
+        status_desc = "No high-impact USD data scheduled for today. Technical structure is the primary driver."
+        side_color = 0x2ecc71  # Institutional Green
         
-        try:
-            # We use POST for the layout-chart endpoint
-            res = requests.post(api_url, headers=headers, json=params, timeout=20)
-            if res.status_code == 200:
-                image_url = res.json().get('url', "")
-        except Exception as e:
-            print(f"Chart Error: {e}")
+        # Look ahead for the next upcoming event
+        if upcoming_news:
+            next_e = upcoming_news[0]
+            intel_field = f"Next Institutional Event: **{next_e['title']}**\nScheduled: {next_e['date']} at **{next_e['time']}**"
+        else:
+            intel_field = "No major USD releases scheduled for the remainder of the week."
+        intel_header = "Upcoming Economic Intelligence"
 
-    # Fallback image if API fails
-    if not image_url:
-        image_url = f"https://api.chart-img.com/v1/tradingview/mini-chart?symbol=CME_MINI:NQ1!&theme=dark"
+    # Charts and Headlines
+    intelligence = get_market_news()
+    chart_url = f"https://api.chart-img.com/v1/tradingview/advanced-chart/storage?symbol=CME_MINI:NQ1!&layout={chart_id}&height=600&width=1000"
 
-    # 3. Final Discord Payload
     embed = {
         "title": "🏛️ UWS INSTITUTIONAL TERMINAL: NASDAQ",
-        "color": 0xff0000 if news_list else 0x00ff00,
-        "description": f"**Market Status:** {status}\n\n**Economic Intel:**\n{news_msg}",
-        "image": {"url": image_url},
-        "footer": {"text": "Follow the money, not fake gurus. | UWS Intel Desk"}
+        "color": side_color,
+        "description": f"**Current Status:** {status_title}\n{status_desc}",
+        "fields": [
+            {"name": intel_header, "value": f"```\n{intel_field}\n```", "inline": False},
+            {"name": "🗞️ Market Briefing", "value": intelligence if intelligence else "Awaiting fresh data.", "inline": False}
+        ],
+        "image": {"url": chart_url},
+        "footer": {"text": "Underground Wall Street | Systematic Intel Desk"}
     }
     
     requests.post(webhook, json={"embeds": [embed]})
