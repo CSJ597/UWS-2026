@@ -1,8 +1,8 @@
 name: UWS Daily Intel
 on:
   schedule:
-    - cron: '0 14 * * 1-5' # 9:00 AM EST Mon-Fri
-  workflow_dispatch:        # Allows you to click "Run workflow" manually
+    - cron: '35 13 * * 1-5' # 8:35 AM EST (5 mins after session open)
+  workflow_dispatch:        # Allows manual testing
 
 jobs:
   run-intel:
@@ -15,15 +15,14 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install Tools
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install requests
+          pip install requests yfinance pandas numpy
 
       - name: Run UWS Script
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           CHART_IMG_KEY: ${{ secrets.CHART_IMG_KEY }}
           FINNHUB_KEY: ${{ secrets.FINNHUB_API_KEY }}
-          TV_SESSION_ID: ${{ secrets.TV_SESSION_ID }} # <--- ESSENTIAL
         run: python uws_intel.py
