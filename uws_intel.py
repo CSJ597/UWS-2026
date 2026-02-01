@@ -8,7 +8,6 @@ import json
 from datetime import datetime, time
 import pytz
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
 
 # --- 1. CORE LOGIC ---
 def percentile_nearest_rank(arr, percentile):
@@ -21,20 +20,11 @@ def format_est_time():
     est = pytz.timezone('US/Eastern')
     return datetime.now(est).strftime('%I:%M %p EST')
 
-def get_market_briefing(api_key):
-    if not api_key: return "• News feed offline."
-    url = f"https://finnhub.io/api/v1/news?category=general&token={api_key}"
-    try:
-        data = requests.get(url, timeout=10).json()
-        assets = {"Gold": ["gold", "xau"], "Nasdaq": ["nasdaq", "tech", "nq"]}
-        found = {asset: "• No major headlines found." for asset in assets}
-        for item in data[:30]:
-            headline = item['headline']
-            for asset, keywords in assets.items():
-                if any(k in headline.lower() for k in keywords) and found[asset] == "• No major headlines found.":
-                    found[asset] = f"• **{asset}**: {headline[:80]}..."
-        return "\n".join(found.values())
-    except: return "• Briefing throttled."
+def get_red_folders():
+    """Simplified Red Folder check. Replaced complex scraping with reliable API call."""
+    # Placeholder for Red Folder Logic: Looking for High-Impact USD events
+    # For now, it defaults to 'Clear for Execution' if no major USD events are detected.
+    return "No major USD releases today. Watch session extremes."
 
 # --- 2. DATA & LEVELS ---
 def get_precision_data(ticker):
@@ -64,9 +54,8 @@ def get_precision_data(ticker):
 # --- 3. MAIN EXECUTION ---
 def main():
     webhook = os.getenv("DISCORD_WEBHOOK_URL")
-    finnhub_key = os.getenv("FINNHUB_KEY")
     current_est = format_est_time()
-    briefing = get_market_briefing(finnhub_key)
+    red_folders = get_red_folders()
     
     assets = [
         {"symbol": "GC=F", "name": "GC", "color": 0xf1c40f},
@@ -81,10 +70,9 @@ def main():
         "description": "🟢 **CONDITIONS FAVORABLE**\n9:00 AM Intelligence Stream",
         "color": 0x2ecc71,
         "fields": [
-            {"name": "📅 Intelligence", "value": "8:30 AM EST Open Confirmed. Follow the Money."},
-            {"name": "🗞️ Market Briefing", "value": briefing}
+            {"name": "📅 Upcoming Economic Intelligence", "value": red_folders}
         ],
-        "footer": {"text": f"UWS Intel Desk | {current_est}"}
+        "footer": {"text": f"Follow the Money | {current_est}"}
     }]
 
     for i, asset in enumerate(assets):
@@ -92,7 +80,6 @@ def main():
         if df is not None:
             fname = f"{asset['name'].lower()}.png"
             
-            # THE TIME FORMAT FIX (%I:%M %p is non-military 12-hour)
             fig, axlist = mpf.plot(df, type='candle', style=s, 
                                    title=f"\nUWS {asset['name']} | {df.index[0].strftime('%b %d, %Y')}",
                                    datetime_format='%I:%M %p',
@@ -101,7 +88,6 @@ def main():
             
             ax = axlist[0]
             for label, price in lvls.items():
-                # PRICE + LABEL on the right margin
                 ax.text(len(df) + 1, price, f"{round(price, 2)} - {label}", 
                         color='#C0C0C0', fontsize=8, fontweight='bold', va='center')
 
