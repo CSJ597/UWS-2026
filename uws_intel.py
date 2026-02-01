@@ -4,6 +4,7 @@ import yfinance as yf
 import pandas as pd
 import mplfinance as mpf
 import requests
+import json
 from datetime import datetime
 import pytz
 import matplotlib.pyplot as plt
@@ -19,9 +20,8 @@ def format_est_time():
     est = pytz.timezone('US/Eastern')
     return datetime.now(est).strftime('%I:%M %p EST')
 
-# --- 2. INTEL GATHERING ---
 def get_market_briefing(api_key):
-    if not api_key: return "• News feed offline (Missing Key)."
+    if not api_key: return "• News feed offline (Check Secret)."
     url = f"https://finnhub.io/api/v1/news?category=general&token={api_key}"
     try:
         data = requests.get(url, timeout=10).json()
@@ -36,7 +36,6 @@ def get_market_briefing(api_key):
     except: return "• Market Briefing throttled."
 
 def get_data_and_levels(ticker, lookback=500):
-    print(f"Fetching {ticker}...")
     df = yf.download(ticker, period="2d", interval="1m", multi_level_index=False, progress=False)
     if df.empty: return None, None, None
     window = df.tail(lookback)
@@ -51,36 +50,33 @@ def get_data_and_levels(ticker, lookback=500):
     }
     return window, lvls, sess_o
 
-# --- 3. MAIN EXECUTION ---
+# --- 2. MAIN EXECUTION ---
 def main():
     webhook = os.getenv("DISCORD_WEBHOOK_URL")
     finnhub_key = os.getenv("FINNHUB_KEY")
     current_est = format_est_time()
     briefing = get_market_briefing(finnhub_key)
     
-    # ORDERED: GC first, then NQ
     assets = [
         {"symbol": "GC=F", "name": "GC", "color": 0xf1c40f},
         {"symbol": "NQ=F", "name": "NQ", "color": 0x2ecc71}
     ]
     
-    # Custom UWS Styling
     mc = mpf.make_marketcolors(up='#00ffbb', down='#ff3366', edge='inherit', wick='inherit')
     s = mpf.make_mpf_style(base_mpf_style='nightclouds', marketcolors=mc, gridcolor='#1a1a1a', facecolor='#050505')
 
+    # Start the "Multipart" payload
     files = {}
-    embeds = [
-        {
-            "title": "🏛️ UNDERGROUND UPDATE",
-            "description": "🟢 **CONDITIONS FAVORABLE**\nClear for Execution",
-            "color": 0x2ecc71,
-            "fields": [
-                {"name": "📅 Upcoming Economic Intelligence", "value": "No major releases. Watch session extremes."},
-                {"name": "🗞️ Market Briefing", "value": briefing}
-            ],
-            "footer": {"text": f"Follow the money, not fake gurus. | UWS Intel Desk | {current_est}"}
-        }
-    ]
+    embeds = [{
+        "title": "🏛️ UNDERGROUND UPDATE",
+        "description": "🟢 **CONDITIONS FAVORABLE**\nClear for Execution",
+        "color": 0x2ecc71,
+        "fields": [
+            {"name": "📅 Upcoming Economic Intelligence", "value": "No major releases. Watch session extremes."},
+            {"name": "🗞️ Market Briefing", "value": briefing}
+        ],
+        "footer": {"text": f"Follow the money, not fake gurus. | UWS Intel Desk | {current_est}"}
+    }]
 
     for i, asset in enumerate(assets):
         df, lvls, sess_o = get_data_and_levels(asset["symbol"])
@@ -90,6 +86,8 @@ def main():
                                    title=f"\nUWS INTEL: {asset['name']} (1m) | {current_est}",
                                    hlines=dict(hlines=list(lvls.values()), colors='#C0C0C0', linewidths=1.2, alpha=0.6),
                                    returnfig=True, figscale=1.6, tight_layout=True)
+            
+            # Label the levels on the right margin
             ax = axlist[0]
             for label, price in lvls.items():
                 ax.text(len(df) + 2, price, label, color='#C0C0C0', fontsize=8, va='center')
@@ -97,7 +95,10 @@ def main():
             fig.savefig(fname, facecolor=fig.get_facecolor())
             plt.close(fig)
             
-            files[f"file{i}"] = open(fname, 'rb')
+            # Add file to the upload dictionary
+            files[f"file{i}"] = (fname, open(fname, 'rb'), 'image/png')
+            
+            # Add analysis card linked to the image
             embeds.append({
                 "title": f"📈 {asset['name']} ANALYSIS",
                 "color": asset["color"],
@@ -106,10 +107,17 @@ def main():
             })
 
     if webhook:
-        payload = {"payload_json": requests.utils.quote(str({"embeds": embeds}))}
-        requests.post(webhook, files=files, data=payload)
-        for f in files.values(): f.close()
-        print("UWS Intelligence Stream Sent.")
+        # THE FIX: Wrap the json in 'payload_json' for multipart requests
+        payload = {"payload_json": json.dumps({"embeds": embeds})}
+        response = requests.post(webhook, files=files, data=payload)
+        
+        # Cleanup
+        for _, file_tuple in files.items(): file_tuple[1].close()
+        
+        if response.status_code in [200, 204]:
+            print("UWS Update Delivered Successfully.")
+        else:
+            print(f"Failed to send. Error {response.status_code}: {response.text}")
 
 if __name__ == "__main__":
     main()
