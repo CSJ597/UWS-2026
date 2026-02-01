@@ -3,7 +3,7 @@ import os
 from datetime import datetime, timezone
 
 def get_market_news(api_key):
-    """Fetches high-impact news from Finnhub."""
+    """Fetches news and shortens titles for a cleaner terminal look."""
     if not api_key:
         return "⚠️ *System Error: FINNHUB_API_KEY mapping failed.*"
     
@@ -12,7 +12,13 @@ def get_market_news(api_key):
         response = requests.get(url, timeout=10)
         data = response.json()
         if isinstance(data, list) and len(data) > 0:
-            return "\n".join([f"• [{n['headline']}]({n['url']})" for n in data[:3]])
+            headlines = []
+            for n in data[:3]:
+                title = n['headline']
+                # Shorten to 60 characters for institutional look
+                short_title = (title[:57] + '...') if len(title) > 60 else title
+                headlines.append(f"• [{short_title}]({n['url']})")
+            return "\n".join(headlines)
         return "⚠️ *No fresh headlines found.*"
     except:
         return "⚠️ *Finnhub API connection error.*"
@@ -50,7 +56,6 @@ def main():
     status_text, side_color = ("⚠️ **VOLATILITY ALERT**", 0xe74c3c) if today_news else ("🟢 **CONDITIONS FAVORABLE**", 0x2ecc71)
     status_sub = "Heightened Volatility Anticipated" if today_news else "Clear for Execution"
     
-    # --- News Section Branding ---
     if today_news:
         intel_title = "Today's High Impact News"
         intel_detail = "\n".join([f"-# {e}" for e in today_news])
@@ -62,13 +67,18 @@ def main():
     # --- THE CHART FIX ---
     image_url = ""
     if chart_key:
-        # We use the v2 layout-chart endpoint to pull your specific indicators
-        api_url = f"https://api.chart-img.com/v2/tradingview/layout-chart/{layout_id}"
+        # Using the advanced storage endpoint to ensure Discord unfurls the image
+        api_url = f"https://api.chart-img.com/v2/tradingview/advanced-chart/storage"
         headers = {"x-api-key": chart_key}
-        payload = {"width": 1200, "height": 800, "theme": "dark"}
+        payload = {
+            "symbol": "CME_MINI:NQ1!",
+            "layout": layout_id,
+            "width": 1200, 
+            "height": 800, 
+            "theme": "dark"
+        }
         try:
             res = requests.post(api_url, json=payload, headers=headers, timeout=20)
-            # We must get the 'url' key from the JSON response
             image_url = res.json().get('url', "")
         except: pass
 
