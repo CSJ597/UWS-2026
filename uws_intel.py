@@ -5,7 +5,7 @@ import pandas as pd
 import mplfinance as mpf
 import requests
 import json
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 import pytz
 import matplotlib.pyplot as plt
 
@@ -20,30 +20,53 @@ def format_est_time():
     est = pytz.timezone('US/Eastern')
     return datetime.now(est).strftime('%I:%M %p EST')
 
-def get_finnhub_briefing(api_key):
-    """Restores the Finnhub link-powered briefing."""
-    if not api_key: return "• Intel desk offline (Missing Key)."
+# --- 2. INTEL GATHERING ---
+def get_economic_intel(api_key):
+    """Checks for 'Red Folders' (High Impact USD events)."""
+    if not api_key: return "No major USD releases today. Watch session extremes.", 0x2ecc71
+    
+    today = datetime.now(pytz.timezone('US/Eastern')).strftime('%Y-%m-%d')
+    url = f"https://finnhub.io/api/v1/calendar/economic?token={api_key}"
+    
+    try:
+        response = requests.get(url, timeout=10).json()
+        calendar = response.get('economicCalendar', [])
+        
+        red_folders = []
+        for event in calendar:
+            # Check for today, USD, and High Impact (3)
+            if event.get('date', '').split(' ')[0] == today and event.get('country') == 'US' and event.get('impact') == 3:
+                red_folders.append(f"🚩 **{event.get('event')}** ({event.get('time')})")
+        
+        if red_folders:
+            # Return events and the RED color (0xe74c3c)
+            return "\n".join(red_folders), 0xe74c3c
+        else:
+            return "No News", 0x2ecc71
+    except:
+        return "No major USD releases today. Watch session extremes.", 0x2ecc71
+
+def get_finnhub_news(api_key, assets):
+    """Fetches exactly one fresh article per instrument with clickable links."""
+    if not api_key: return "• News feed offline."
     url = f"https://finnhub.io/api/v1/news?category=general&token={api_key}"
+    
     try:
         data = requests.get(url, timeout=10).json()
-        # Filtering for Gold and Nasdaq keywords
-        assets = {"Gold": ["gold", "xau"], "Nasdaq": ["nasdaq", "tech", "nq"]}
-        found = []
-        for item in data[:30]:
+        found = {}
+        for item in data[:50]:
             headline = item['headline']
-            url = item['url']
-            # Using Discord clickable link format: [Text](URL)
-            for asset, keywords in assets.items():
-                if any(k in headline.lower() for k in keywords):
-                    found.append(f"• **{asset}**: [{headline[:75]}...]({url})")
-                    break # Stop looking for other assets once headline is matched
-        return "\n".join(found[:6]) if found else "No major news headlines found."
+            link = item['url']
+            for asset_name, keywords in assets.items():
+                if asset_name not in found and any(k in headline.lower() for k in keywords):
+                    found[asset_name] = f"• **{asset_name}**: [{headline[:75]}...]({link})"
+        
+        return "\n".join(found.values()) if found else "No News"
     except:
-        return "• Market Briefing throttled."
+        return "No News"
 
-# --- 2. THE PRECISION DATA ---
+# --- 3. DATA & LEVELS ---
 def get_precision_data(ticker):
-    print(f"Fetching {ticker} data...")
     df = yf.download(ticker, period="5d", interval="1m", multi_level_index=False, progress=False)
     if df.empty: return None, None, None
     df.index = df.index.tz_convert('US/Eastern')
@@ -64,12 +87,15 @@ def get_precision_data(ticker):
     }
     return window, lvls, sess_o
 
-# --- 3. MAIN EXECUTION ---
+# --- 4. MAIN EXECUTION ---
 def main():
     webhook = os.getenv("DISCORD_WEBHOOK_URL")
-    finnhub_key = os.getenv("FINNHUB_KEY") # Ensure this is in GitHub Secrets
+    finnhub_key = os.getenv("FINNHUB_KEY")
     current_est = format_est_time()
-    briefing = get_finnhub_briefing(finnhub_key)
+    
+    news_keywords = {"Gold": ["gold", "xau"], "Nasdaq": ["nasdaq", "tech", "nq"]}
+    briefing = get_finnhub_news(finnhub_key, news_keywords)
+    eco_intel, embed_color = get_economic_intel(finnhub_key)
     
     assets = [
         {"symbol": "GC=F", "name": "GC", "color": 0xf1c40f},
@@ -82,9 +108,9 @@ def main():
     files, embeds = {}, [{
         "title": "🏛️ UNDERGROUND UPDATE",
         "description": "🟢 **CONDITIONS FAVORABLE**\nClear for Execution",
-        "color": 0x2ecc71,
+        "color": embed_color,
         "fields": [
-            {"name": "📅 Upcoming Economic Intelligence", "value": "No major USD releases today. Watch session extremes."},
+            {"name": "📅 Upcoming Economic Intelligence", "value": eco_intel},
             {"name": "🗞️ Market Briefing", "value": briefing}
         ],
         "footer": {"text": f"Follow the money, not fake gurus. | {current_est}"}
@@ -100,10 +126,8 @@ def main():
                                    hlines=dict(hlines=list(lvls.values()), colors='#C0C0C0', linewidths=1.2, alpha=0.5),
                                    returnfig=True, figscale=1.8, tight_layout=True)
             ax = axlist[0]
-            # Price Labels on the right margin
             for label, price in lvls.items():
-                ax.text(len(df) + 1, price, f"{round(price, 2)} - {label}", 
-                        color='#C0C0C0', fontsize=8, fontweight='bold', va='center')
+                ax.text(len(df) + 1, price, f"{round(price, 2)} - {label}", color='#C0C0C0', fontsize=8, fontweight='bold', va='center')
 
             fig.savefig(fname, facecolor=fig.get_facecolor())
             plt.close(fig)
