@@ -1,7 +1,7 @@
 name: UWS Daily Intel
 on:
   schedule:
-    - cron: '30 13 * * 1-5' # 9:00 AM EST (Mon-Fri)
+    - cron: '30 13 * * 1-5' # 8:30 AM EST (Mon-Fri)
   workflow_dispatch:
 
 jobs:
