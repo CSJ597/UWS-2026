@@ -49,7 +49,7 @@ def get_forex_factory_intel():
     now = datetime.now(tz_est)
     
     try:
-        # Fix 2: Use impersonate and handle invalid JSON
+        # Use impersonate and handle invalid JSON/HTTP errors
         response = requests.get(url, impersonate="chrome110", timeout=15)
         if response.status_code != 200:
             print(f"Forex Factory Error: HTTP {response.status_code}")
@@ -127,10 +127,8 @@ def main():
     mc = mpf.make_marketcolors(up='#00ffbb', down='#ff3366', edge='inherit', wick='inherit')
     s = mpf.make_mpf_style(base_mpf_style='nightclouds', marketcolors=mc, gridcolor='#1a1a1a', facecolor='#050505')
 
-    # Fix 1: Use proper files dictionary for multipart request
-    files_to_send = {
-        "payload_json": (None, json.dumps({"embeds": embeds}), "application/json")
-    }
+    # Prepare list to store image filenames
+    image_files = []
 
     for i, asset in enumerate(assets):
         df, lvls = get_precision_data(asset["symbol"])
@@ -149,8 +147,8 @@ def main():
             plt.close(fig)
             add_watermark(fname, LOGO_BASE64)
             
-            # Add image to the multipart files dictionary
-            files_to_send[f"file{i}"] = (fname, open(fname, 'rb'), 'image/png')
+            # Store filename for later
+            image_files.append(fname)
             
             embeds.append({
                 "title": f"📈 {asset['name']} 1m OPENING LEVELS",
@@ -158,20 +156,24 @@ def main():
                 "image": {"url": f"attachment://{fname}"},
                 "footer": {"text": f"Follow the money, not the fake gurus."}
             })
-            # Update the JSON part with the new embed list
-            files_to_send["payload_json"] = (None, json.dumps({"embeds": embeds}), "application/json")
 
     if webhook:
         try:
-            requests.post(webhook, files=files_to_send, impersonate="chrome110")
+            # Build multipart data for curl_cffi (correct format)
+            multipart_data = {
+                "payload_json": (None, json.dumps({"embeds": embeds}))
+            }
+            
+            # Add image files - read all files into memory first
+            for i, fname in enumerate(image_files):
+                with open(fname, 'rb') as f:
+                    multipart_data[f"file{i}"] = (fname, f.read(), 'image/png')
+            
+            # Use multipart parameter instead of files
+            requests.post(webhook, multipart=multipart_data, impersonate="chrome110")
             print("✅ Briefing Delivered.")
         except Exception as e:
             print(f"❌ Discord Post Failed: {e}")
-        finally:
-            # Close file handles
-            for key, val in files_to_send.items():
-                if isinstance(val, tuple) and hasattr(val[1], 'close'):
-                    val[1].close()
 
 if __name__ == "__main__":
     main()
