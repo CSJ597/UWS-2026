@@ -159,15 +159,15 @@ def main():
 
     if webhook:
         try:
-            # Build multipart data for curl_cffi (correct format)
-            multipart_data = {
-                "payload_json": (None, json.dumps({"embeds": embeds}))
-            }
+            # Build multipart list for curl_cffi (correct format per their docs)
+            multipart_data = [
+                ("payload_json", json.dumps({"embeds": embeds}))
+            ]
             
             # Add image files - read all files into memory first
             for i, fname in enumerate(image_files):
                 with open(fname, 'rb') as f:
-                    multipart_data[f"file{i}"] = (fname, f.read(), 'image/png')
+                    multipart_data.append((f"file{i}", (fname, f.read(), 'image/png')))
             
             # Use multipart parameter instead of files
             requests.post(webhook, multipart=multipart_data, impersonate="chrome110")
