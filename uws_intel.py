@@ -150,7 +150,7 @@ def main():
         if plot_df is not None:
             fname = f"{asset['name'].lower()}.png"
             fig, axlist = mpf.plot(plot_df, type='candle', style=s, returnfig=True, figscale=1.8,
-                                   title=f"\n1m CHART | {asset['name']} | {plot_df.index[0].strftime('%b %d, %Y')}",
+                                   title=f"\n1 Minute Chart | {asset['name']} | {plot_df.index[0].strftime('%b %d, %Y')}",
                                    datetime_format='%I:%M %p', 
                                    hlines=dict(hlines=list(lvls.values()), colors='#C0C0C0', linewidths=1.2, alpha=0.5))
             
