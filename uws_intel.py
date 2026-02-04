@@ -130,7 +130,7 @@ def main():
         df, lvls = get_precision_data(asset["symbol"])
         if df is not None:
             fname = f"{asset['name'].lower()}.png"
-            # RESTORED H-LINES: Ensures P50, P75, and P90 levels are visible on the chart
+            # --- RESTORED H-LINES ---
             fig, axlist = mpf.plot(df, type='candle', style=s, returnfig=True, figscale=1.8,
                                    title=f"\n1m OPENING LEVELS: {asset['name']} | {df.index[0].strftime('%b %d')}",
                                    hlines=dict(hlines=list(lvls.values()), colors='#C0C0C0', linewidths=1.2, alpha=0.5))
