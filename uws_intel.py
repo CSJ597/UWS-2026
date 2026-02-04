@@ -159,18 +159,28 @@ def main():
 
     if webhook:
         try:
-            # Build multipart list for curl_cffi (correct format per their docs)
-            multipart_data = [
-                ("payload_json", json.dumps({"embeds": embeds}))
-            ]
+            # Build multipart using CurlMime (correct format per curl_cffi docs)
+            from curl_cffi import CurlMime
             
-            # Add image files - read all files into memory first
+            mp = CurlMime()
+            
+            # Add the JSON payload as a form field
+            mp.addpart(
+                name="payload_json",
+                data=json.dumps({"embeds": embeds}).encode('utf-8')
+            )
+            
+            # Add image files
             for i, fname in enumerate(image_files):
-                with open(fname, 'rb') as f:
-                    multipart_data.append((f"file{i}", (fname, f.read(), 'image/png')))
+                mp.addpart(
+                    name=f"file{i}",
+                    content_type='image/png',
+                    filename=fname,
+                    local_path=fname
+                )
             
-            # Use multipart parameter instead of files
-            requests.post(webhook, multipart=multipart_data, impersonate="chrome110")
+            # Use multipart parameter with CurlMime object
+            requests.post(webhook, multipart=mp, impersonate="chrome110")
             print("✅ Briefing Delivered.")
         except Exception as e:
             print(f"❌ Discord Post Failed: {e}")
