@@ -19,7 +19,7 @@ LOGO_BASE64 = """iVBORw0KGgoAAAANSUhEUgAABAAAAAQACAYAAAB/HSuDAAAACXBIWXMAAAsTAAA
 
 # --- 🛠️ CORE UTILITIES ---
 def add_watermark(image_path, base64_str):
-    """Centers the logo at the absolute top of the canvas with high clearance."""
+    """Centers the logo at the absolute top of the canvas."""
     if not base64_str or len(base64_str) < 50 or "PLACEHOLDER" in base64_str:
         return
     try:
@@ -28,13 +28,11 @@ def add_watermark(image_path, base64_str):
         base_img = Image.open(image_path).convert("RGBA")
         bw, bh = base_img.size
         
-        # Logo Size: 12% of width
         logo_w = int(bw * 0.12)
         w_percent = (logo_w / float(logo.size[0]))
         logo_h = int((float(logo.size[1]) * float(w_percent)))
         logo = logo.resize((logo_w, logo_h), Image.Resampling.LANCZOS)
         
-        # Position: Absolute Center-Top
         center_x = (bw - logo_w) // 2
         position = (center_x, 30) 
         
@@ -46,40 +44,41 @@ def add_watermark(image_path, base64_str):
         print(f"Branding Error: {e}")
 
 def get_forex_factory_intel():
-    """Fetches full weekly schedule from Forex Factory and filters for USD Red Folders."""
-    url = "https://nfs.forexfactory.com/ff_calendar_thisweek.json"
+    """Fetches the weekly schedule from Forex Factory using the primary stable domain."""
+    # Switched from nfs.forexfactory.com to www.forexfactory.com for DNS stability
+    url = "https://www.forexfactory.com/ff_calendar_thisweek.json"
     tz_est = pytz.timezone('US/Eastern')
     now = datetime.now(tz_est)
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json"
+        "Accept": "application/json",
+        "Referer": "https://www.forexfactory.com/"
     }
     
     try:
         response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
         data = response.json()
         today_reds = []
         future_reds = []
         
         for event in data:
-            # Filter: USD only and High Impact (Red Folder) only
+            # High Impact USD events only
             if event.get('currency') == 'USD' and event.get('impact') == 'High':
+                # FF provides UTC ISO strings
                 dt_utc = datetime.fromisoformat(event.get('date').replace('Z', '+00:00'))
                 dt_est = dt_utc.astimezone(tz_est)
                 
-                # Check for events today (including those that just happened like 8:30 AM)
                 if dt_est.date() == now.date():
                     time_str = dt_est.strftime('%I:%M %p')
                     status = "✅" if dt_est < now else "🚩"
                     today_reds.append(f"{status} **{event.get('title')}** @ {time_str}")
-                
-                # Collect strictly future events for the "Next Intel" prediction
                 elif dt_est > now:
                     future_reds.append((dt_est, event.get('title')))
         
         if today_reds:
-            return "\n".join(today_reds), 0xe74c3c # Alert Red
+            return "\n".join(today_reds), 0xe74c3c 
         
         if future_reds:
             future_reds.sort(key=lambda x: x[0])
@@ -89,38 +88,42 @@ def get_forex_factory_intel():
             
         return "No High Impact Scheduled this week.", 0x2ecc71
     except Exception as e:
-        print(f"FF Error: {e}")
-        return "Forex Factory Sync Offline.", 0x2ecc71
+        print(f"Intel Sync Error: {e}")
+        return "Economic Calendar Sync Offline.", 0x2ecc71
 
 def get_precision_data(ticker):
-    """Calculates algorithmic P-levels based on session volatility."""
-    df = yf.download(ticker, period="5d", interval="1m", multi_level_index=False, progress=False)
-    if df.empty: return None, None
-    df.index = df.index.tz_convert('US/Eastern')
-    session_start = datetime.combine(df.index[-1].date(), dtime(8, 30)).replace(tzinfo=pytz.timezone('US/Eastern'))
-    window = df[df.index >= session_start]
-    if window.empty: window = df.tail(500)
-    sess_o = window.iloc[0]['Open']
-    aH, aL = (window['High'] - sess_o).tolist(), (sess_o - window['Low']).tolist()
-    
-    def p_rank(arr, p):
-        if not arr: return 0
-        s = sorted(arr)
-        return s[max(0, math.ceil((p/100) * len(s)) - 1)]
+    """Downloads and processes session data for UWS levels."""
+    try:
+        df = yf.download(ticker, period="5d", interval="1m", multi_level_index=False, progress=False)
+        if df.empty: return None, None
+        df.index = df.index.tz_convert('US/Eastern')
+        session_start = datetime.combine(df.index[-1].date(), dtime(8, 30)).replace(tzinfo=pytz.timezone('US/Eastern'))
+        window = df[df.index >= session_start]
+        if window.empty: window = df.tail(500)
+        sess_o = window.iloc[0]['Open']
+        aH, aL = (window['High'] - sess_o).tolist(), (sess_o - window['Low']).tolist()
+        
+        def p_rank(arr, p):
+            if not arr: return 0
+            s = sorted(arr)
+            return s[max(0, math.ceil((p/100) * len(s)) - 1)]
 
-    lvls = {
-        "P50 H": sess_o + p_rank(aH, 50), "P50 L": sess_o - p_rank(aL, 50),
-        "P75 H": sess_o + p_rank(aH, 75), "P75 L": sess_o - p_rank(aL, 75),
-        "P90 H": sess_o + p_rank(aH, 90), "P90 L": sess_o - p_rank(aL, 90)
-    }
-    return window, lvls
+        lvls = {
+            "P50 H": sess_o + p_rank(aH, 50), "P50 L": sess_o - p_rank(aL, 50),
+            "P75 H": sess_o + p_rank(aH, 75), "P75 L": sess_o - p_rank(aL, 75),
+            "P90 H": sess_o + p_rank(aH, 90), "P90 L": sess_o - p_rank(aL, 90)
+        }
+        return window, lvls
+    except Exception as e:
+        print(f"Data Fetch Error for {ticker}: {e}")
+        return None, None
 
 # --- 🚀 MAIN EXECUTION ---
 def main():
     webhook = os.getenv("DISCORD_WEBHOOK_URL")
     current_est = datetime.now(pytz.timezone('US/Eastern')).strftime('%I:%M %p EST')
     
-    # FETCH FOREX FACTORY WEEKLY INTEL
+    # FETCH INTEL
     eco_intel, embed_color = get_forex_factory_intel()
     
     status_header = "\n\n🟢 **CONDITIONS FAVORABLE**" if embed_color == 0x2ecc71 else "\n\n🔴 **CAUTION: HIGH VOLATILITY**"
@@ -132,7 +135,7 @@ def main():
         "color": embed_color,
         "fields": [
             {"name": "\u200B", "value": "\u200B", "inline": False},
-            {"name": "📅 Forex Factory Intel (USD)", "value": eco_intel, "inline": False},
+            {"name": "📅 Economic Intel (USD)", "value": eco_intel, "inline": False},
             {"name": "\u200B", "value": "\u200B", "inline": False}
         ],
         "footer": {"text": f"Follow the money, not the fake gurus. | {current_est}"}
@@ -151,7 +154,6 @@ def main():
                                    hlines=dict(hlines=list(lvls.values()), colors='#C0C0C0', linewidths=1.2, alpha=0.5),
                                    returnfig=True, figscale=1.8)
             
-            # --- ABSOLUTE SEPARATION LAYOUT ---
             plt.subplots_adjust(top=0.65, right=0.85)
             title_text = f"1m OPENING LEVELS: {asset['name']} | {df.index[0].strftime('%b %d, %Y')}"
             fig.text(0.5, 0.75, title_text, color='white', ha='center', fontsize=14, fontweight='bold')
