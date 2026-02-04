@@ -1,5 +1,4 @@
 name: UWS Daily Intel
-
 on:
   schedule:
     - cron: '0 14 * * 1-5' # 9:00 AM EST (Mon-Fri)
