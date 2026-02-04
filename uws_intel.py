@@ -43,51 +43,45 @@ def add_watermark(image_path, base64_str):
         print(f"Branding Error: {e}")
 
 def get_forex_factory_intel():
-    """Fetches High Impact USD events using Finnhub's free Economic Calendar API."""
-    # Get free API key at: https://finnhub.io/register
-    api_key = os.getenv("FINNHUB_API_KEY", "")
-    
-    if not api_key:
-        print("⚠️ FINNHUB_API_KEY not set. Get free API key at: https://finnhub.io/register")
-        return "Economic Intel: API Key Required (Free at finnhub.io)", 0x2ecc71
-    
+    """Fetches High Impact USD events using the FREE Forex Factory JSON API."""
+    # Free Forex Factory CDN endpoint - NO API KEY REQUIRED!
+    url = "https://cdn-nfs.faireconomy.media/ff_calendar_thisweek.json"
     tz_est = pytz.timezone('US/Eastern')
     now = datetime.now(tz_est)
     
     try:
-        # Finnhub economic calendar endpoint - don't use impersonation, just standard requests
-        url = f"https://finnhub.io/api/v1/calendar/economic?token={api_key}"
-        
-        # Use standard requests library (imported by yfinance) instead of curl_cffi for this call
+        # Use standard requests library - no authentication needed
         import requests as std_requests
         response = std_requests.get(url, timeout=15)
         
         if response.status_code != 200:
-            print(f"Finnhub API Error: HTTP {response.status_code}")
-            if response.status_code == 403:
-                print("API Key may be invalid. Get a new one at: https://finnhub.io/register")
+            print(f"Forex Factory CDN Error: HTTP {response.status_code}")
             return "Economic Intel Stream Offline.", 0x2ecc71
 
         data = response.json()
         today_reds, future_reds = [], []
         
-        # Finnhub returns: economicCalendar array with {country, event, impact, actual, estimate, prev, time}
-        events = data.get('economicCalendar', [])
-        
-        for event in events:
-            # Filter for US events with high impact
-            if event.get('country') == 'US' and event.get('impact') == 'high':
-                # Parse Unix timestamp
-                timestamp = event.get('time')
-                if timestamp:
-                    dt_utc = datetime.fromtimestamp(int(timestamp), tz=pytz.UTC)
+        # Parse events from Forex Factory format
+        for event in data:
+            # Filter for USD and High Impact
+            if event.get('country') == 'USD' and event.get('impact') == 'High':
+                # Parse date string
+                date_str = event.get('date', '')
+                try:
+                    # Parse ISO format datetime
+                    dt_utc = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
                     dt_est = dt_utc.astimezone(tz_est)
-                    
-                    if dt_est.date() == now.date():
-                        status = "✅" if dt_est < now else "🚩"
-                        today_reds.append(f"{status} **{event.get('event')}** @ {dt_est.strftime('%I:%M %p')}")
-                    elif dt_est > now:
-                        future_reds.append((dt_est, event.get('event')))
+                except Exception as e:
+                    print(f"Date parse error: {e} for {date_str}")
+                    continue
+                
+                if dt_est.date() == now.date():
+                    status = "✅" if dt_est < now else "🚩"
+                    title = event.get('title', 'Unknown Event')
+                    today_reds.append(f"{status} **{title}** @ {dt_est.strftime('%I:%M %p')}")
+                elif dt_est > now:
+                    title = event.get('title', 'Unknown Event')
+                    future_reds.append((dt_est, title))
         
         if today_reds:
             return "\n".join(today_reds), 0xe74c3c 
