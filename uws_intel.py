@@ -55,13 +55,17 @@ def get_forex_factory_intel():
     now = datetime.now(tz_est)
     
     try:
-        # Finnhub economic calendar endpoint
+        # Finnhub economic calendar endpoint - don't use impersonation, just standard requests
         url = f"https://finnhub.io/api/v1/calendar/economic?token={api_key}"
         
-        response = requests.get(url, impersonate="chrome110", timeout=15)
+        # Use standard requests library (imported by yfinance) instead of curl_cffi for this call
+        import requests as std_requests
+        response = std_requests.get(url, timeout=15)
         
         if response.status_code != 200:
             print(f"Finnhub API Error: HTTP {response.status_code}")
+            if response.status_code == 403:
+                print("API Key may be invalid. Get a new one at: https://finnhub.io/register")
             return "Economic Intel Stream Offline.", 0x2ecc71
 
         data = response.json()
@@ -96,6 +100,8 @@ def get_forex_factory_intel():
         return "No High Impact Scheduled.", 0x2ecc71
     except Exception as e:
         print(f"Economic Intel Error: {e}")
+        import traceback
+        traceback.print_exc()
         return "Economic Intel Stream Offline.", 0x2ecc71
 
 def get_precision_data(ticker):
