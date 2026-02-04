@@ -43,31 +43,49 @@ def add_watermark(image_path, base64_str):
         print(f"Branding Error: {e}")
 
 def get_forex_factory_intel():
-    """Fetches High Impact USD events with robust error handling and impersonation."""
-    url = "https://www.forexfactory.com/ff_calendar_thisweek.json"
+    """Fetches High Impact USD events using JBlanked API (free Forex Factory aggregator)."""
+    url = "https://www.jblanked.com/news/api/forex-factory/calendar/today/"
     tz_est = pytz.timezone('US/Eastern')
     now = datetime.now(tz_est)
     
     try:
-        # Use impersonate and handle invalid JSON/HTTP errors
-        response = requests.get(url, impersonate="chrome110", timeout=15)
+        # JBlanked API requires API key in headers - get free key at jblanked.com
+        api_key = os.getenv("JBLANKED_API_KEY", "")
+        
+        if not api_key:
+            print("⚠️ JBLANKED_API_KEY not set. Get free API key at: https://www.jblanked.com/news/api/docs/calendar/")
+            return "Economic Intel: API Key Required (Free at jblanked.com)", 0x2ecc71
+        
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Api-Key {api_key}"
+        }
+        
+        response = requests.get(url, headers=headers, impersonate="chrome110", timeout=15)
+        
         if response.status_code != 200:
-            print(f"Forex Factory Error: HTTP {response.status_code}")
+            print(f"JBlanked API Error: HTTP {response.status_code}")
             return "Economic Intel Stream Offline.", 0x2ecc71
 
         data = response.json()
         today_reds, future_reds = [], []
         
         for event in data:
-            if event.get('currency') == 'USD' and event.get('impact') == 'High':
-                dt_utc = datetime.fromisoformat(event.get('date').replace('Z', '+00:00'))
-                dt_est = dt_utc.astimezone(tz_est)
+            # JBlanked API returns: Name, Currency, Date, Strength (impact level 1-3)
+            if event.get('Currency') == 'USD' and event.get('Strength', 0) >= 3:  # Strength 3 = High Impact
+                # Parse datetime from JBlanked format
+                event_date_str = event.get('Date', '')
+                try:
+                    dt_utc = datetime.fromisoformat(event_date_str.replace('Z', '+00:00'))
+                    dt_est = dt_utc.astimezone(tz_est)
+                except:
+                    continue
                 
                 if dt_est.date() == now.date():
                     status = "✅" if dt_est < now else "🚩"
-                    today_reds.append(f"{status} **{event.get('title')}** @ {dt_est.strftime('%I:%M %p')}")
+                    today_reds.append(f"{status} **{event.get('Name')}** @ {dt_est.strftime('%I:%M %p')}")
                 elif dt_est > now:
-                    future_reds.append((dt_est, event.get('title')))
+                    future_reds.append((dt_est, event.get('Name')))
         
         if today_reds:
             return "\n".join(today_reds), 0xe74c3c 
@@ -79,8 +97,8 @@ def get_forex_factory_intel():
             
         return "No High Impact Scheduled.", 0x2ecc71
     except Exception as e:
-        print(f"Forex Factory Sync Error: {e}")
-        return "Forex Factory Sync Offline.", 0x2ecc71
+        print(f"Economic Intel Error: {e}")
+        return "Economic Intel Stream Offline.", 0x2ecc71
 
 def get_precision_data(ticker):
     """Calculates UWS levels for the given asset."""
