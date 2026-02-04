@@ -21,7 +21,7 @@ LOGO_BASE64 = """iVBORw0KGgoAAAANSUhEUgAABAAAAAQACAYAAAB/HSuDAAAACXBIWXMAAAsTAAA
 
 # --- 🛠️ CORE UTILITIES ---
 def add_watermark(image_path, base64_str):
-    if not base64_str or len(base64_str) < 100: return
+    if not base64_str or len(base64_str) < 100 or "PASTE_YOUR" in base64_str: return
     try:
         clean_str = "".join(base64_str.split())
         rem = len(clean_str) % 4
@@ -60,9 +60,7 @@ def get_red_folder_intel():
                         try:
                             t_parsed = datetime.strptime(time_str.upper().replace(" ET", ""), "%I:%M %p").time()
                             event_dt = tz_est.localize(datetime.combine(now.date(), t_parsed))
-                            if event_dt < now: status = "✅" 
-                            elif event_dt.date() > now.date(): status = "📅"
-                            else: status = "🚩"
+                            status = "✅" if event_dt < now else "🚩"
                         except: status = "🚩"
                         clean_title = re.sub(r"(USD -|\d{1,2}:\d{2}\s*[AP]M\s*ET|HIGH|RED|MEDIUM|Next Event|\d{2}:\d{2}:\d{2})", "", text_raw, flags=re.I).strip()
                         if clean_title: today_reds.append(f"{status} **{clean_title}** @ {time_str}")
@@ -70,6 +68,25 @@ def get_red_folder_intel():
         if unique_reds: return "\n".join(unique_reds), 0xe74c3c
     except: pass
     return "✅ No High Impact USD News Scheduled.", 0x2ecc71
+
+def get_finnhub_briefing(api_key):
+    """Restored: Fetches the two specific market insights for Gold and Nasdaq."""
+    if not api_key: return "News feed offline."
+    url = f"https://finnhub.io/api/v1/news?category=general&token={api_key}"
+    try:
+        resp = discord_requests.get(url, timeout=10)
+        data = resp.json()
+        found = []
+        assets = {"Gold": ["gold", "xau"], "Nasdaq": ["nasdaq", "tech", "nq"]}
+        for item in data[:50]:
+            h, l = item['headline'], item['url']
+            for name, keys in assets.items():
+                if any(k in h.lower() for k in keys) and name not in [x.split(":")[0] for x in found]:
+                    found.append(f"• **{name}**: [{h[:65]}...]({l})")
+                    break
+            if len(found) >= 2: break
+        return "\n".join(found) if found else "No instrument-specific headlines."
+    except: return "Briefing unavailable."
 
 def get_precision_data(ticker):
     df_5m = yf.download(ticker, period="2d", interval="5m", progress=False)
@@ -103,9 +120,12 @@ def get_precision_data(ticker):
 
 def main():
     webhook = os.getenv("DISCORD_WEBHOOK_URL")
+    finnhub_key = os.getenv("FINNHUB_KEY")
     current_est = datetime.now(pytz.timezone('US/Eastern')).strftime('%I:%M %p EST')
     eco_intel, embed_color = get_red_folder_intel()
+    briefing = get_finnhub_briefing(finnhub_key)
     zws = "\u200B" 
+
     embeds = [{
         "title": f"{'\u2002' * 12}🏦  UNDERGROUND UPDATE  🏦",
         "description": ("🟢 **FAVORABLE**" if embed_color == 0x2ecc71 else "🔴 **CAUTION: VOLATILITY**"),
@@ -113,20 +133,23 @@ def main():
         "fields": [
             {"name": "📅 Economic Intel", "value": eco_intel, "inline": False},
             {"name": zws, "value": zws, "inline": False},
+            {"name": "🗞️ Market Briefing", "value": briefing, "inline": False},
+            {"name": zws, "value": zws, "inline": False},
             {"name": zws, "value": "Follow the money, not the fake gurus.", "inline": False}
         ],
         "footer": {"text": f"UWS Intelligence Desk | {current_est}"}
     }]
+
     assets = [{"symbol": "GC=F", "name": "GC", "color": 0xf1c40f}, {"symbol": "NQ=F", "name": "NQ", "color": 0x2ecc71}]
     mc = mpf.make_marketcolors(up='#00ffbb', down='#ff3366', edge='inherit', wick='inherit')
     s = mpf.make_mpf_style(base_mpf_style='nightclouds', marketcolors=mc, facecolor='#050505')
+
     files = {}
     for i, asset in enumerate(assets):
         plot_df, lvls = get_precision_data(asset["symbol"])
         if plot_df is not None:
             plot_df = plot_df.dropna(subset=['Open', 'High', 'Low', 'Close']).astype(float)
             fname = f"{asset['name'].lower()}.png"
-            # --- UPDATED TITLE LOGIC ---
             fig, axlist = mpf.plot(plot_df, type='candle', style=s, returnfig=True, figscale=1.8,
                                    title=f"\n1 Minute Chart, {asset['name']}, {plot_df.index[0].strftime('%b %d, %Y')}",
                                    datetime_format='%I:%M %p', 
@@ -140,6 +163,7 @@ def main():
             add_watermark(fname, LOGO_BASE64)
             files[f"file{i}"] = (fname, open(fname, 'rb'), 'image/png')
             embeds.append({"title": f"📈 {asset['name']} | Session Levels", "color": asset["color"], "image": {"url": f"attachment://{fname}"}})
+
     if webhook:
         discord_requests.post(webhook, files=files, data={"payload_json": json.dumps({"embeds": embeds})})
         for _, f_ptr in files.items(): f_ptr[1].close()
