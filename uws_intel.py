@@ -43,49 +43,48 @@ def add_watermark(image_path, base64_str):
         print(f"Branding Error: {e}")
 
 def get_forex_factory_intel():
-    """Fetches High Impact USD events using JBlanked API (free Forex Factory aggregator)."""
-    url = "https://www.jblanked.com/news/api/forex-factory/calendar/today/"
+    """Fetches High Impact USD events using jblanked.com Free News API."""
+    # Free API endpoint - no key required!
+    url = "https://www.jblanked.com/api/news/v2/calendar"
     tz_est = pytz.timezone('US/Eastern')
     now = datetime.now(tz_est)
     
     try:
-        # JBlanked API requires API key in headers - get free key at jblanked.com
-        api_key = os.getenv("JBLANKED_API_KEY", "")
-        
-        if not api_key:
-            print("⚠️ JBLANKED_API_KEY not set. Get free API key at: https://www.jblanked.com/news/api/docs/calendar/")
-            return "Economic Intel: API Key Required (Free at jblanked.com)", 0x2ecc71
-        
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Api-Key {api_key}"
-        }
-        
-        response = requests.get(url, headers=headers, impersonate="chrome110", timeout=15)
+        # Free API - no authentication required
+        response = requests.get(url, impersonate="chrome110", timeout=15)
         
         if response.status_code != 200:
-            print(f"JBlanked API Error: HTTP {response.status_code}")
+            print(f"News API Error: HTTP {response.status_code}")
             return "Economic Intel Stream Offline.", 0x2ecc71
 
         data = response.json()
         today_reds, future_reds = [], []
         
+        # API returns list of events with: name, currency, date, strength (1-3)
         for event in data:
-            # JBlanked API returns: Name, Currency, Date, Strength (impact level 1-3)
-            if event.get('Currency') == 'USD' and event.get('Strength', 0) >= 3:  # Strength 3 = High Impact
-                # Parse datetime from JBlanked format
-                event_date_str = event.get('Date', '')
+            # Filter for USD and Strength 3 (High Impact)
+            if event.get('currency') == 'USD' and event.get('strength', 0) == 3:
+                # Parse the date string
+                date_str = event.get('date', '')
                 try:
-                    dt_utc = datetime.fromisoformat(event_date_str.replace('Z', '+00:00'))
+                    # Try parsing ISO format with timezone
+                    if 'T' in date_str:
+                        dt_utc = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                    else:
+                        # Try parsing without timezone
+                        dt_utc = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
+                        dt_utc = dt_utc.replace(tzinfo=pytz.UTC)
+                    
                     dt_est = dt_utc.astimezone(tz_est)
-                except:
+                except Exception as e:
+                    print(f"Date parse error: {e} for {date_str}")
                     continue
                 
                 if dt_est.date() == now.date():
                     status = "✅" if dt_est < now else "🚩"
-                    today_reds.append(f"{status} **{event.get('Name')}** @ {dt_est.strftime('%I:%M %p')}")
+                    today_reds.append(f"{status} **{event.get('name')}** @ {dt_est.strftime('%I:%M %p')}")
                 elif dt_est > now:
-                    future_reds.append((dt_est, event.get('Name')))
+                    future_reds.append((dt_est, event.get('name')))
         
         if today_reds:
             return "\n".join(today_reds), 0xe74c3c 
