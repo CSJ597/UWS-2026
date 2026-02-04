@@ -43,48 +43,47 @@ def add_watermark(image_path, base64_str):
         print(f"Branding Error: {e}")
 
 def get_forex_factory_intel():
-    """Fetches High Impact USD events using jblanked.com Free News API."""
-    # Free API endpoint - no key required!
-    url = "https://www.jblanked.com/api/news/v2/calendar"
+    """Fetches High Impact USD events using Finnhub's free Economic Calendar API."""
+    # Get free API key at: https://finnhub.io/register
+    api_key = os.getenv("FINNHUB_API_KEY", "")
+    
+    if not api_key:
+        print("⚠️ FINNHUB_API_KEY not set. Get free API key at: https://finnhub.io/register")
+        return "Economic Intel: API Key Required (Free at finnhub.io)", 0x2ecc71
+    
     tz_est = pytz.timezone('US/Eastern')
     now = datetime.now(tz_est)
     
     try:
-        # Free API - no authentication required
+        # Finnhub economic calendar endpoint
+        url = f"https://finnhub.io/api/v1/calendar/economic?token={api_key}"
+        
         response = requests.get(url, impersonate="chrome110", timeout=15)
         
         if response.status_code != 200:
-            print(f"News API Error: HTTP {response.status_code}")
+            print(f"Finnhub API Error: HTTP {response.status_code}")
             return "Economic Intel Stream Offline.", 0x2ecc71
 
         data = response.json()
         today_reds, future_reds = [], []
         
-        # API returns list of events with: name, currency, date, strength (1-3)
-        for event in data:
-            # Filter for USD and Strength 3 (High Impact)
-            if event.get('currency') == 'USD' and event.get('strength', 0) == 3:
-                # Parse the date string
-                date_str = event.get('date', '')
-                try:
-                    # Try parsing ISO format with timezone
-                    if 'T' in date_str:
-                        dt_utc = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-                    else:
-                        # Try parsing without timezone
-                        dt_utc = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
-                        dt_utc = dt_utc.replace(tzinfo=pytz.UTC)
-                    
+        # Finnhub returns: economicCalendar array with {country, event, impact, actual, estimate, prev, time}
+        events = data.get('economicCalendar', [])
+        
+        for event in events:
+            # Filter for US events with high impact
+            if event.get('country') == 'US' and event.get('impact') == 'high':
+                # Parse Unix timestamp
+                timestamp = event.get('time')
+                if timestamp:
+                    dt_utc = datetime.fromtimestamp(int(timestamp), tz=pytz.UTC)
                     dt_est = dt_utc.astimezone(tz_est)
-                except Exception as e:
-                    print(f"Date parse error: {e} for {date_str}")
-                    continue
-                
-                if dt_est.date() == now.date():
-                    status = "✅" if dt_est < now else "🚩"
-                    today_reds.append(f"{status} **{event.get('name')}** @ {dt_est.strftime('%I:%M %p')}")
-                elif dt_est > now:
-                    future_reds.append((dt_est, event.get('name')))
+                    
+                    if dt_est.date() == now.date():
+                        status = "✅" if dt_est < now else "🚩"
+                        today_reds.append(f"{status} **{event.get('event')}** @ {dt_est.strftime('%I:%M %p')}")
+                    elif dt_est > now:
+                        future_reds.append((dt_est, event.get('event')))
         
         if today_reds:
             return "\n".join(today_reds), 0xe74c3c 
