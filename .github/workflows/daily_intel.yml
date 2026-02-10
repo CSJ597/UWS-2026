@@ -1,175 +1,27 @@
-import os
-import math
-import yfinance as yf
-import pandas as pd
-import mplfinance as mpf
-import requests as discord_requests
-from curl_cffi import requests as anti_bot_requests
-from bs4 import BeautifulSoup
-import json
-import base64
-import sys
-import re
-from io import BytesIO, StringIO
-from datetime import datetime, time as dtime, timedelta
-import pytz
-import matplotlib.pyplot as plt
-from PIL import Image
+name: UWS Daily Intel
+on:
+  schedule:
+    - cron: '30 13 * * 1-5' # 8:30 AM EST (Mon-Fri)
+  workflow_dispatch: # Allows manual trigger from the Actions tab
 
-# --- 🏦 UWS LOGO CONFIG ---
-LOGO_BASE64 = """iVBORw0KGgoAAAANSUhEUgAABAAAAAQACAYAAAB/HSuDAAAACXBIWXMAAAsTAAALEwEAmpwYAAZrLUlEQVR4nOz9d7QlSXrYB35fROTN6++7z3tX3nd197S3024Mxs8AAwIDRxAAKZKQqF26w5W4h0dcrnQOVxRXu8ulxCOK0uFSFFcLGpAgBIIAAQyAccD0zPRM++6q6nLvvXrvXZcmIr79I/2991VVz7Sb7u/XXe/emxkZGRmZERmfiS+w1Wyp3b1dDQzDMAzDMAzDMAzDvG8RQETvdiEYhmEYhmEYhmEYhnl7Ee92ARiGYRiGYRiGYRiGefsRhIDvdiEYhmEYhmEYhmEYhnl7YQ8AhmEYhmEYhmEYhvkAIICAYwAwDMMwDMMwDMMwzPsc9gBgGIZhGIZhGIZhmA8AAohDADAMwzAMwzAMwzDM+"""
+jobs:
+  run-intel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
-# --- 🛠️ CORE UTILITIES ---
-def add_watermark(image_path, base64_str):
-    if not base64_str or len(base64_str) < 100: return
-    try:
-        clean_str = "".join(base64_str.split())
-        rem = len(clean_str) % 4
-        if rem > 0: clean_str += "=" * (4 - rem)
-        logo_data = base64.b64decode(clean_str)
-        logo = Image.open(BytesIO(logo_data)).convert("RGBA")
-        base_img = Image.open(image_path).convert("RGBA")
-        bw, bh = base_img.size
-        logo_w = int(bw * 0.06) 
-        w_percent = (logo_w / float(logo.size[0]))
-        logo_h = int((float(logo.size[1]) * float(w_percent)))
-        logo = logo.resize((logo_w, logo_h), Image.Resampling.LANCZOS)
-        position = (bw - logo_w - 30, 30) 
-        transparent = Image.new('RGBA', base_img.size, (0,0,0,0))
-        transparent.paste(base_img, (0,0))
-        transparent.paste(logo, position, mask=logo)
-        transparent.convert("RGB").save(image_path)
-    except: pass
+      - name: Install Libraries
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests curl_cffi yfinance pandas mplfinance pytz matplotlib pillow beautifulsoup4
 
-def get_red_folder_intel():
-    """Precision Scraper: Extracts clean Title @ Time and flags past (✅) vs upcoming (🚩)."""
-    tz_est = pytz.timezone('US/Eastern')
-    now = datetime.now(tz_est)
-    today_reds = []
-    blacklist = ["chrome", "store", "extension", "available", "quantcrawler", "redfolder", "next event", "00:"]
-    
-    try:
-        url = "https://www.quantcrawler.com/redfolder"
-        resp = anti_bot_requests.get(url, impersonate="chrome120", timeout=15)
-        soup = BeautifulSoup(resp.text, 'html.parser')
-        
-        # Target table rows to skip sidebar ads and widgets
-        for row in soup.find_all('tr'):
-            text_raw = row.get_text(separator='|', strip=True)
-            text_low = text_raw.lower()
-            
-            if "usd" in text_low and ("high" in text_low or "red" in text_low):
-                if not any(word in text_low for word in blacklist):
-                    # Extract Time (ET) and Event Title via split
-                    parts = [p.strip() for p in text_raw.split('|') if p.strip()]
-                    time_str = None
-                    event_name = None
-                    
-                    for p in parts:
-                        if re.search(r"\d{1,2}:\d{2}\s*[AP]M\s*ET", p, re.I):
-                            time_str = p
-                        elif p.upper() not in ["USD", "HIGH", "RED", "MEDIUM", "LOW"]:
-                            if not any(b in p.lower() for b in blacklist):
-                                event_name = p
-                    
-                    if time_str and event_name:
-                        try:
-                            t_parsed = datetime.strptime(time_str.upper().replace(" ET", ""), "%I:%M %p").time()
-                            event_dt = tz_est.localize(datetime.combine(now.date(), t_parsed))
-                            status = "✅" if event_dt < now else "🚩"
-                        except: status = "🚩"
-                        
-                        today_reds.append(f"{status} **{event_name}** @ {time_str}")
-
-        unique_reds = list(dict.fromkeys(today_reds))
-        if unique_reds: return "\n".join(unique_reds), 0xe74c3c
-    except: pass
-    return "✅ No High Impact USD News Scheduled.", 0x2ecc71
-
-def get_precision_data(ticker):
-    """Calculates 5m Macro levels plotted on 1m Micro resolution."""
-    df_5m = yf.download(ticker, period="2d", interval="5m", progress=False)
-    if df_5m.empty: return None, None
-    if isinstance(df_5m.columns, pd.MultiIndex): df_5m.columns = df_5m.columns.get_level_values(0)
-    
-    df_5m.index = df_5m.index.tz_convert('US/Eastern')
-    session_start = datetime.combine(df_5m.index[-1].date(), dtime(8, 30)).replace(tzinfo=pytz.timezone('US/Eastern'))
-    window_5m = df_5m[df_5m.index >= session_start]
-    if window_5m.empty: window_5m = df_5m.tail(50)
-    
-    sess_o = window_5m.iloc[0]['Open']
-    aH = (window_5m['High'].values.flatten() - sess_o).tolist()
-    aL = (sess_o - window_5m['Low'].values.flatten()).tolist()
-    
-    def p_rank(arr, p):
-        s = sorted(arr)
-        return s[max(0, math.ceil((p/100) * len(s)) - 1)]
-
-    raw_lvls = {"P50 H": sess_o + p_rank(aH, 50), "P50 L": sess_o - p_rank(aL, 50),
-                "P75 H": sess_o + p_rank(aH, 75), "P75 L": sess_o - p_rank(aL, 75),
-                "P90 H": sess_o + p_rank(aH, 90), "P90 L": sess_o - p_rank(aL, 90)}
-
-    sorted_items = sorted(raw_lvls.items(), key=lambda x: x[1])
-    clean_lvls, last_p = {}, -float('inf')
-    clearance = sess_o * 0.0002 
-    for label, price in sorted_items:
-        if abs(price - last_p) > clearance:
-            clean_lvls[label] = price
-            last_p = price
-    
-    df_1m = yf.download(ticker, period="1d", interval="1m", progress=False)
-    df_1m.index = df_1m.index.tz_convert('US/Eastern')
-    if isinstance(df_1m.columns, pd.MultiIndex): df_1m.columns = df_1m.columns.get_level_values(0)
-    return df_1m.tail(150), clean_lvls
-
-def main():
-    webhook = os.getenv("DISCORD_WEBHOOK_URL")
-    current_est = datetime.now(pytz.timezone('US/Eastern')).strftime('%I:%M %p EST')
-    eco_intel, embed_color = get_red_folder_intel()
-    zws = "\u200B" 
-
-    embeds = [{
-        "title": f"{'\u2002' * 12}🏦  UNDERGROUND UPDATE  🏦",
-        "description": ("🟢 **FAVORABLE**" if embed_color == 0x2ecc71 else "🔴 **CAUTION: VOLATILITY**"),
-        "color": embed_color,
-        "fields": [
-            {"name": "📅 Economic Intel", "value": eco_intel, "inline": False},
-            {"name": zws, "value": zws, "inline": False},
-            {"name": zws, "value": "Follow the money, not the fake gurus.", "inline": False}
-        ],
-        "footer": {"text": f"UWS Intelligence Desk | {current_est}"}
-    }]
-
-    assets = [{"symbol": "GC=F", "name": "GC", "color": 0xf1c40f}, {"symbol": "NQ=F", "name": "NQ", "color": 0x2ecc71}]
-    mc = mpf.make_marketcolors(up='#00ffbb', down='#ff3366', edge='inherit', wick='inherit')
-    s = mpf.make_mpf_style(base_mpf_style='nightclouds', marketcolors=mc, facecolor='#050505')
-
-    files = {}
-    for i, asset in enumerate(assets):
-        plot_df, lvls = get_precision_data(asset["symbol"])
-        if plot_df is not None:
-            plot_df = plot_df.dropna(subset=['Open', 'High', 'Low', 'Close']).astype(float)
-            fname = f"{asset['name'].lower()}.png"
-            # RESTORED ORIGINAL CHART LOGIC
-            fig, axlist = mpf.plot(plot_df, type='candle', style=s, returnfig=True, figscale=1.8,
-                                   title=f"\n1 Minute Chart, {asset['name']}, {plot_df.index[0].strftime('%b %d, %Y')}",
-                                   datetime_format='%I:%M %p', 
-                                   hlines=dict(hlines=list(lvls.values()), colors='#C0C0C0', linewidths=1.2, alpha=0.5))
-            
-            plt.subplots_adjust(right=0.85)
-            for label, price in lvls.items():
-                axlist[0].text(len(plot_df) + 2.5, price, f"{round(price, 2)} - {label}", 
-                               color='#C0C0C0', fontsize=8, fontweight='bold', va='center')
-            
-            fig.savefig(fname, facecolor=fig.get_facecolor(), bbox_inches='tight')
-            plt.close(fig)
-            add_watermark(fname, LOGO_BASE64)
-            files[f"file{i}"] = (fname, open(fname, 'rb'), 'image/png')
-            embeds.append({"title": f"📈 {asset['name']} | Session Levels", "color": asset["color"], "image": {"url": f"attachment://{fname}"}})
-
-    if webhook:
-        discord_requests.post(webhook, files=files, data={"payload_json": json.dumps({"embeds": embeds})})
-        for _, f_ptr in files.items(): f_ptr[1].close()
-
-if __name__ == "__main__":
-    main()
+      - name: Run UWS Script
+        env:
+          # Ensure these match the EXACT names in your GitHub Repository Secrets
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          FINNHUB_KEY: ${{ secrets.FINNHUB_API_KEY }}
+        run: python -u uws_intel.py
