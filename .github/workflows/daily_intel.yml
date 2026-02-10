@@ -2,7 +2,7 @@ name: UWS Daily Intel
 on:
   schedule:
     - cron: '30 13 * * 1-5' # 8:30 AM EST (Mon-Fri)
-  workflow_dispatch: 
+  workflow_dispatch: # Allows you to click "Run workflow" for testing
 
 jobs:
   run-intel:
@@ -15,7 +15,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install Libraries
-        run: |\
+        run: |
           python -m pip install --upgrade pip
           pip install requests curl_cffi yfinance pandas mplfinance pytz matplotlib pillow beautifulsoup4
 
