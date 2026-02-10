@@ -42,19 +42,19 @@ def add_watermark(image_path, base64_str):
     except: pass
 
 def get_red_folder_intel():
-    """Institutional Scraper: Replicates Forex Factory logic with Timezone Sync."""
+    """Browser Impersonation: Syncs timezone and scrapes official high-impact USD events."""
     tz_ny = pytz.timezone('America/New_York')
     now = datetime.now(tz_ny)
     today_reds = []
     
-    # Force New York Timezone via Cookie (EST = -18000, EDT = -14400)
+    # Force Forex Factory to NY Time (EST -18000, EDT -14400)
     offset = int(now.utcoffset().total_seconds())
     cookies = {'fftimezoneoffset': str(offset)}
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     
     try:
-        date_str = now.strftime('%b%d.%Y').lower()
-        url = f"https://www.forexfactory.com/calendar?day={date_str}"
-        resp = anti_bot_requests.get(url, impersonate="chrome120", cookies=cookies, timeout=15)
+        url = "https://www.forexfactory.com/calendar?day=today"
+        resp = anti_bot_requests.get(url, impersonate="chrome120", cookies=cookies, headers=headers, timeout=15)
         soup = BeautifulSoup(resp.text, 'html.parser')
         
         rows = soup.find_all('tr', class_='calendar__row')
@@ -66,16 +66,11 @@ def get_red_folder_intel():
             event = row.find('td', class_='calendar__event')
             time_td = row.find('td', class_='calendar__time')
             
-            if time_td and time_td.text.strip():
-                curr_time = time_td.text.strip().upper()
+            if time_td and time_td.text.strip(): curr_time = time_td.text.strip().upper()
+            if not (impact and currency and event): continue
             
-            if not (impact and currency and event):
-                continue
-            
-            is_red = 'icon--impact-red' in str(impact)
-            is_usd = currency.text.strip().upper() == 'USD'
-            
-            if is_red and is_usd:
+            # Filter specifically for USD Red Folders
+            if 'icon--impact-red' in str(impact) and currency.text.strip().upper() == 'USD':
                 event_name = event.text.strip()
                 try:
                     if "DAY" in curr_time:
@@ -85,22 +80,17 @@ def get_red_folder_intel():
                         event_dt = tz_ny.localize(datetime.combine(now.date(), t_obj))
                         status = "✅" if event_dt < now else "🚩"
                         disp_time = curr_time
-                except:
-                    status, disp_time = "🚩", curr_time or "TBD"
+                except: status, disp_time = "🚩", curr_time or "TBD"
                 
                 today_reds.append(f"{status} **{event_name}** @ {disp_time} EST")
 
         unique_reds = list(dict.fromkeys(today_reds))
-        if unique_reds:
-            return "\n".join(unique_reds), 0xe74c3c
-    except Exception as e:
-        print(f"News Scraper Error: {e}")
-        
-    return "✅ No High Impact USD News Scheduled.", 0x2ecc71
+        return ("\n".join(unique_reds), 0xe74c3c) if unique_reds else ("✅ No High Impact USD News Scheduled.", 0x2ecc71)
+    except: return "✅ No High Impact USD News Scheduled.", 0x2ecc71
 
 def get_finnhub_briefing(api_key):
-    """Briefing: Fetches instrument-specific headlines for Gold and Nasdaq."""
-    if not api_key: return "Briefing offline."
+    """Restored: Fetches one Gold and one Nasdaq insight for the briefing field."""
+    if not api_key: return "News feed offline."
     url = f"https://finnhub.io/api/v1/news?category=general&token={api_key}"
     try:
         resp = discord_requests.get(url, timeout=10)
@@ -114,7 +104,7 @@ def get_finnhub_briefing(api_key):
                     found.append(f"• **{name}**: [{h[:65]}...]({l})")
                     break
             if len(found) >= 2: break
-        return "\n".join(found) if found else "No sector headlines."
+        return "\n".join(found) if found else "No sector headlines today."
     except: return "Briefing unavailable."
 
 def get_precision_data(ticker):
@@ -122,30 +112,24 @@ def get_precision_data(ticker):
     if df_5m.empty: return None, None
     if isinstance(df_5m.columns, pd.MultiIndex): df_5m.columns = df_5m.columns.get_level_values(0)
     df_5m.index = df_5m.index.tz_convert('US/Eastern')
-    
     session_start = datetime.combine(df_5m.index[-1].date(), dtime(8, 30)).replace(tzinfo=pytz.timezone('US/Eastern'))
     window_5m = df_5m[df_5m.index >= session_start]
     if window_5m.empty: window_5m = df_5m.tail(50)
-    
     sess_o = window_5m.iloc[0]['Open']
     aH = (window_5m['High'].values.flatten() - sess_o).tolist()
     aL = (sess_o - window_5m['Low'].values.flatten()).tolist()
-    
     def p_rank(arr, p):
         s = sorted(arr)
         return s[max(0, math.ceil((p/100) * len(s)) - 1)]
-
     raw_lvls = {"P50 H": sess_o + p_rank(aH, 50), "P50 L": sess_o - p_rank(aL, 50),
                 "P75 H": sess_o + p_rank(aH, 75), "P75 L": sess_o - p_rank(aL, 75),
                 "P90 H": sess_o + p_rank(aH, 90), "P90 L": sess_o - p_rank(aL, 90)}
-
     sorted_items = sorted(raw_lvls.items(), key=lambda x: x[1])
     clean_lvls, last_p, clearance = {}, -float('inf'), sess_o * 0.0002 
     for label, price in sorted_items:
         if abs(price - last_p) > clearance:
             clean_lvls[label] = price
             last_p = price
-    
     df_1m = yf.download(ticker, period="1d", interval="1m", progress=False)
     if isinstance(df_1m.columns, pd.MultiIndex): df_1m.columns = df_1m.columns.get_level_values(0)
     df_1m.index = df_1m.index.tz_convert('US/Eastern')
@@ -155,11 +139,9 @@ def main():
     webhook = os.getenv("DISCORD_WEBHOOK_URL")
     finnhub_key = os.getenv("FINNHUB_KEY")
     current_est = datetime.now(pytz.timezone('US/Eastern')).strftime('%I:%M %p EST')
-    
     eco_intel, embed_color = get_red_folder_intel()
     briefing = get_finnhub_briefing(finnhub_key)
     zws = "\u200B" 
-
     embeds = [{
         "title": f"{'\u2002' * 12}🏦  UNDERGROUND UPDATE  🏦",
         "description": ("🟢 **FAVORABLE**" if embed_color == 0x2ecc71 else "🔴 **CAUTION: VOLATILITY**"),
@@ -173,11 +155,9 @@ def main():
         ],
         "footer": {"text": f"UWS Intelligence Desk | {current_est}"}
     }]
-
     assets = [{"symbol": "GC=F", "name": "GC", "color": 0xf1c40f}, {"symbol": "NQ=F", "name": "NQ", "color": 0x2ecc71}]
     mc = mpf.make_marketcolors(up='#00ffbb', down='#ff3366', edge='inherit', wick='inherit')
     s = mpf.make_mpf_style(base_mpf_style='nightclouds', marketcolors=mc, facecolor='#050505')
-
     files = {}
     for i, asset in enumerate(assets):
         plot_df, lvls = get_precision_data(asset["symbol"])
@@ -192,13 +172,11 @@ def main():
             for label, price in lvls.items():
                 axlist[0].text(len(plot_df) + 2.5, price, f"{round(price, 2)} - {label}", 
                                color='#C0C0C0', fontsize=8, fontweight='bold', va='center')
-            
             fig.savefig(fname, facecolor=fig.get_facecolor(), bbox_inches='tight')
             plt.close(fig)
             add_watermark(fname, LOGO_BASE64)
             files[f"file{i}"] = (fname, open(fname, 'rb'), 'image/png')
             embeds.append({"title": f"📈 {asset['name']} | Session Levels", "color": asset["color"], "image": {"url": f"attachment://{fname}"}})
-
     if webhook:
         discord_requests.post(webhook, files=files, data={"payload_json": json.dumps({"embeds": embeds})})
         for _, f_ptr in files.items(): f_ptr[1].close()
