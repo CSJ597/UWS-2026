@@ -42,11 +42,13 @@ def add_watermark(image_path, base64_str):
 def get_tradingview_intel():
     """TradingView JSON Feed: Fetches high-impact USD events specifically."""
     tz_ny = pytz.timezone('America/New_York')
+    tz_utc = pytz.UTC
     now = datetime.now(tz_ny)
     
-    # Define current 24h window in UTC for the API
-    start = now.replace(hour=0, minute=0, second=0).strftime('%Y-%m-%dT%H:%M:%SZ')
-    end = now.replace(hour=23, minute=59, second=59).strftime('%Y-%m-%dT%H:%M:%SZ')
+    # Convert to UTC for the API request (API expects UTC times)
+    now_utc = now.astimezone(tz_utc)
+    start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0).strftime('%Y-%m-%dT%H:%M:%SZ')
+    end = now_utc.replace(hour=23, minute=59, second=59, microsecond=0).strftime('%Y-%m-%dT%H:%M:%SZ')
     
     url = f"https://economic-calendar.tradingview.com/events?from={start}&to={end}&countries=US"
     
@@ -54,23 +56,54 @@ def get_tradingview_intel():
     try:
         # Impersonate browser to avoid 403 Forbidden
         resp = anti_bot_requests.get(url, impersonate="chrome120", timeout=15)
-        if resp.status_code == 200:
-            data = resp.json()
-            for event in data.get('result', []):
-                # Importance 1 is High Impact (Red Folder)
-                if event.get('importance') == 1:
-                    title = event.get('title')
-                    date_raw = event.get('date') # ISO string in UTC
-                    
-                    dt_utc = datetime.strptime(date_raw, '%Y-%m-%dT%H:%M:%S.000Z').replace(tzinfo=pytz.UTC)
-                    dt_ny = dt_utc.astimezone(tz_ny)
-                    
-                    status = "✅" if dt_ny < now else "🚩"
-                    time_str = dt_ny.strftime('%I:%M %p')
-                    today_reds.append(f"{status} **{title}** @ {time_str} EST")
+        resp.raise_for_status()
         
-        if today_reds: return "\n".join(today_reds), 0xe74c3c
-    except: pass
+        data = resp.json()
+        
+        for event in data.get('result', []):
+            # Importance 1 is High Impact (Red Folder)
+            if event.get('importance') == 1:
+                title = event.get('title')
+                date_raw = event.get('date')
+                
+                if not date_raw or not title:
+                    continue
+                
+                # Parse UTC time - handle potential format variations
+                try:
+                    dt_utc = datetime.strptime(date_raw, '%Y-%m-%dT%H:%M:%S.000Z').replace(tzinfo=tz_utc)
+                except ValueError:
+                    try:
+                        # Try without milliseconds
+                        dt_utc = datetime.strptime(date_raw, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=tz_utc)
+                    except ValueError:
+                        # Skip events with unparseable dates
+                        print(f"Warning: Could not parse date '{date_raw}' for event '{title}'")
+                        continue
+                
+                # Convert to Eastern time
+                dt_ny = dt_utc.astimezone(tz_ny)
+                
+                # Mark as complete (✅) if already passed, upcoming (🚩) if in future
+                status = "✅" if dt_ny < now else "🚩"
+                time_str = dt_ny.strftime('%I:%M %p')
+                today_reds.append(f"{status} **{title}** @ {time_str} EST")
+        
+        if today_reds:
+            return "\n".join(today_reds), 0xe74c3c
+            
+    except anti_bot_requests.exceptions.RequestException as e:
+        print(f"TradingView API Request Error: {e}")
+        return f"⚠️ Economic calendar temporarily unavailable (network error).", 0x95a5a6
+    except json.JSONDecodeError as e:
+        print(f"TradingView API JSON Error: {e}")
+        return f"⚠️ Economic calendar temporarily unavailable (parse error).", 0x95a5a6
+    except Exception as e:
+        print(f"TradingView API Unexpected Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return f"⚠️ Economic calendar temporarily unavailable.", 0x95a5a6
+    
     return "✅ No High Impact USD News Scheduled.", 0x2ecc71
 
 def get_finnhub_briefing(api_key):
