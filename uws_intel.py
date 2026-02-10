@@ -3,12 +3,13 @@ import math
 import yfinance as yf
 import pandas as pd
 import mplfinance as mpf
-import requests
+import requests as discord_requests
+from curl_cffi import requests as anti_bot_requests
 import json
 import base64
 import re
 from io import BytesIO
-from datetime import datetime, time as dtime, timedelta
+from datetime import datetime, time as dtime
 import pytz
 import matplotlib.pyplot as plt
 from PIL import Image
@@ -18,7 +19,7 @@ LOGO_BASE64 = """iVBORw0KGgoAAAANSUhEUgAABAAAAAQACAYAAAB/HSuDAAAACXBIWXMAAAsTAAA
 
 # --- 🛠️ CORE UTILITIES ---
 def add_watermark(image_path, base64_str):
-    if not base64_str or len(base64_str) < 100 or "PLACEHOLDER" in base64_str: return
+    if not base64_str or len(base64_str) < 100 or "PASTE_YOUR" in base64_str: return
     try:
         clean_str = "".join(base64_str.split())
         rem = len(clean_str) % 4
@@ -39,51 +40,48 @@ def add_watermark(image_path, base64_str):
     except: pass
 
 def get_tradingview_intel():
-    """TradingView API: Fetches high-impact USD events via JSON endpoint."""
+    """TradingView API: Fetches high-impact USD events specifically."""
     tz_ny = pytz.timezone('America/New_York')
     now = datetime.now(tz_ny)
     
-    # Define window (today)
     start = now.replace(hour=0, minute=0, second=0).strftime('%Y-%m-%dT%H:%M:%SZ')
     end = now.replace(hour=23, minute=59, second=59).strftime('%Y-%m-%dT%H:%M:%SZ')
     
     url = f"https://economic-calendar.tradingview.com/events?from={start}&to={end}&countries=US"
-    headers = {"User-Agent": "Mozilla/5.0"}
     
     today_reds = []
     try:
-        resp = requests.get(url, headers=headers, timeout=10)
-        data = resp.json()
+        # Use curl_cffi to impersonate browser and avoid 403 errors
+        resp = anti_bot_requests.get(url, impersonate="chrome120", timeout=15)
         
-        # TradingView levels: 1 = High, 0 = Medium, -1 = Low
-        for event in data.get('result', []):
-            importance = event.get('importance')
-            if importance == 1: # High Impact
-                title = event.get('title')
-                date_raw = event.get('date') # ISO format
-                
-                # Convert ISO string to NY Time
-                dt_obj = datetime.strptime(date_raw, '%Y-%m-%dT%H:%M:%S.000Z').replace(tzinfo=pytz.UTC)
-                dt_ny = dt_obj.astimezone(tz_ny)
-                
-                status = "✅" if dt_ny < now else "🚩"
-                time_str = dt_ny.strftime('%I:%M %p')
-                
-                today_reds.append(f"{status} **{title}** @ {time_str} EST")
+        if resp.status_code == 200:
+            data = resp.json()
+            for event in data.get('result', []):
+                # Importance 1 = High/Red Folder
+                if event.get('importance') == 1:
+                    title = event.get('title')
+                    date_raw = event.get('date')
+                    
+                    dt_obj = datetime.strptime(date_raw, '%Y-%m-%dT%H:%M:%S.000Z').replace(tzinfo=pytz.UTC)
+                    dt_ny = dt_obj.astimezone(tz_ny)
+                    
+                    status = "✅" if dt_ny < now else "🚩"
+                    time_str = dt_ny.strftime('%I:%M %p')
+                    
+                    today_reds.append(f"{status} **{title}** @ {time_str} EST")
         
         if today_reds:
             return "\n".join(today_reds), 0xe74c3c
-    except Exception as e:
-        print(f"TradingView Scraper Error: {e}")
-        
+    except: pass
+    
     return "✅ No High Impact USD News Scheduled.", 0x2ecc71
 
 def get_finnhub_briefing(api_key):
-    """Market Briefing: Fetches instrument-specific headlines."""
+    """Briefing: Fetches instrument-specific headlines for Gold and Nasdaq."""
     if not api_key: return "Briefing offline."
     url = f"https://finnhub.io/api/v1/news?category=general&token={api_key}"
     try:
-        resp = requests.get(url, timeout=10)
+        resp = discord_requests.get(url, timeout=10)
         data = resp.json()
         found = []
         assets = {"Gold": ["gold", "xau"], "Nasdaq": ["nasdaq", "tech", "nq"]}
@@ -94,7 +92,7 @@ def get_finnhub_briefing(api_key):
                     found.append(f"• **{name}**: [{h[:65]}...]({l})")
                     break
             if len(found) >= 2: break
-        return "\n".join(found) if found else "No sector headlines."
+        return "\n".join(found) if found else "No sector headlines today."
     except: return "Briefing unavailable."
 
 def get_precision_data(ticker):
@@ -180,7 +178,7 @@ def main():
             embeds.append({"title": f"📈 {asset['name']} | Session Levels", "color": asset["color"], "image": {"url": f"attachment://{fname}"}})
 
     if webhook:
-        requests.post(webhook, files=files, data={"payload_json": json.dumps({"embeds": embeds})})
+        discord_requests.post(webhook, files=files, data={"payload_json": json.dumps({"embeds": embeds})})
         for _, f_ptr in files.items(): f_ptr[1].close()
 
 if __name__ == "__main__":
