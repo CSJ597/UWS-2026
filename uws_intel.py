@@ -21,7 +21,7 @@ LOGO_BASE64 = """iVBORw0KGgoAAAANSUhEUgAABAAAAAQACAYAAAB/HSuDAAAACXBIWXMAAAsTAAA
 
 # --- 🛠️ CORE UTILITIES ---
 def add_watermark(image_path, base64_str):
-    if not base64_str or len(base64_str) < 50 or "PASTE" in base64_str: return
+    if not base64_str or len(base64_str) < 100 or "PASTE_YOUR" in base64_str: return
     try:
         clean_str = "".join(base64_str.split())
         rem = len(clean_str) % 4
@@ -42,91 +42,75 @@ def add_watermark(image_path, base64_str):
     except: pass
 
 def get_red_folder_intel():
-    """Refined Scraper: Targets the actual data rows and filters out the 'Extension' ads."""
+    """Scraper: Cleans event names and flags past (✅) vs upcoming (🚩) events."""
     tz_est = pytz.timezone('US/Eastern')
     now = datetime.now(tz_est)
     today_reds = []
-    
-    # These words indicate promotional 'Next Event' widgets or ads we want to skip
-    blacklist = ["chrome", "store", "extension", "available", "quantcrawler", "redfolder", "next event", "00:"]
-    
+    blacklist = ["chrome", "store", "extension", "available", "quantcrawler", "redfolder", "next event"]
     try:
         url = "https://www.quantcrawler.com/redfolder"
         resp = anti_bot_requests.get(url, impersonate="chrome120", timeout=15)
         soup = BeautifulSoup(resp.text, 'html.parser')
-        
-        # We target table rows (tr) specifically to avoid the sidebar widgets
-        for row in soup.find_all('tr'):
+        for row in soup.find_all(['tr', 'div']):
             text_raw = row.get_text(separator=' ', strip=True)
-            text_low = text_raw.lower()
-            
-            # Look for USD and High/Red impact indicators
-            if "usd" in text_low and ("high" in text_low or "red" in text_low):
-                # Filter out the 'Next Event' countdowns and ads
-                if not any(word in text_low for word in blacklist):
-                    
-                    # Extract the time (e.g., 8:30 AM ET)
+            if "usd" in text_raw.lower() and ("high" in text_raw.lower() or "red" in text_raw.lower()):
+                if not any(word in text_raw.lower() for word in blacklist):
                     time_match = re.search(r"(\d{1,2}:\d{2}\s*[AP]M\s*ET)", text_raw, re.IGNORECASE)
-                    
                     if time_match:
                         time_str = time_match.group(1).strip()
-                        
-                        # Determine if the event already happened
                         try:
                             t_parsed = datetime.strptime(time_str.upper().replace(" ET", ""), "%I:%M %p").time()
                             event_dt = tz_est.localize(datetime.combine(now.date(), t_parsed))
                             status = "✅" if event_dt < now else "🚩"
                         except: status = "🚩"
-                        
-                        # Clean the title of the impact rating and currency code
-                        clean_title = re.sub(r"(USD -|\d{1,2}:\d{2}\s*[AP]M\s*ET|HIGH|RED|MEDIUM)", "", text_raw, flags=re.I).strip()
-                        
-                        # Only add if it's not a duplicate and has a real title
-                        if clean_title and len(clean_title) > 3:
-                            today_reds.append(f"{status} **{clean_title}** @ {time_str}")
-
-        # Deduplicate results
+                        clean_title = re.sub(r"(USD -|\d{1,2}:\d{2}\s*[AP]M\s*ET|HIGH|RED|MEDIUM|Next Event)", "", text_raw, flags=re.I).strip()
+                        if clean_title: today_reds.append(f"{status} **{clean_title}** @ {time_str}")
         unique_reds = list(dict.fromkeys(today_reds))
-        
-        if unique_reds: 
-            return "\n".join(unique_reds), 0xe74c3c
-    except Exception as e:
-        print(f"Scraper Error: {e}")
-        
-    return "✅ No High Impact USD News Today.", 0x2ecc71
+        return ("\n".join(unique_reds), 0xe74c3c) if unique_reds else ("✅ No High Impact USD News Today.", 0x2ecc71)
+    except: return "✅ No High Impact USD News Today.", 0x2ecc71
+
+def get_finnhub_briefing(api_key):
+    """Restored: Fetches the two specific market insights for Gold and Nasdaq."""
+    if not api_key: return "News feed offline."
+    url = f"https://finnhub.io/api/v1/news?category=general&token={api_key}"
+    try:
+        resp = discord_requests.get(url, timeout=10)
+        data = resp.json()
+        found = []
+        assets = {"Gold": ["gold", "xau"], "Nasdaq": ["nasdaq", "tech", "nq"]}
+        for item in data[:50]:
+            h, l = item['headline'], item['url']
+            for name, keys in assets.items():
+                if any(k in h.lower() for k in keys) and name not in [x.split(":")[0] for x in found]:
+                    found.append(f"• **{name}**: [{h[:65]}...]({l})")
+                    break
+            if len(found) >= 2: break
+        return "\n".join(found) if found else "No instrument-specific headlines."
+    except: return "Briefing unavailable."
 
 def get_precision_data(ticker):
-    # Calculations based on 5m macro volatility
     df_5m = yf.download(ticker, period="2d", interval="5m", progress=False)
     if df_5m.empty: return None, None
     if isinstance(df_5m.columns, pd.MultiIndex): df_5m.columns = df_5m.columns.get_level_values(0)
     df_5m.index = df_5m.index.tz_convert('US/Eastern')
-    
     session_start = datetime.combine(df_5m.index[-1].date(), dtime(8, 30)).replace(tzinfo=pytz.timezone('US/Eastern'))
     window_5m = df_5m[df_5m.index >= session_start]
     if window_5m.empty: window_5m = df_5m.tail(50)
-    
     sess_o = window_5m.iloc[0]['Open']
     aH = (window_5m['High'].values.flatten() - sess_o).tolist()
     aL = (sess_o - window_5m['Low'].values.flatten()).tolist()
-    
     def p_rank(arr, p):
         s = sorted(arr)
         return s[max(0, math.ceil((p/100) * len(s)) - 1)]
-
     raw_lvls = {"P50 H": sess_o + p_rank(aH, 50), "P50 L": sess_o - p_rank(aL, 50),
                 "P75 H": sess_o + p_rank(aH, 75), "P75 L": sess_o - p_rank(aL, 75),
                 "P90 H": sess_o + p_rank(aH, 90), "P90 L": sess_o - p_rank(aL, 90)}
-
-    # Filter tight levels
     sorted_items = sorted(raw_lvls.items(), key=lambda x: x[1])
     clean_lvls, last_p, clearance = {}, -float('inf'), sess_o * 0.0002 
     for label, price in sorted_items:
         if abs(price - last_p) > clearance:
             clean_lvls[label] = price
             last_p = price
-    
-    # 1m high-res data for plotting
     df_1m = yf.download(ticker, period="1d", interval="1m", progress=False)
     if df_1m.empty: return None, None
     if isinstance(df_1m.columns, pd.MultiIndex): df_1m.columns = df_1m.columns.get_level_values(0)
@@ -135,8 +119,10 @@ def get_precision_data(ticker):
 
 def main():
     webhook = os.getenv("DISCORD_WEBHOOK_URL")
+    finnhub_key = os.getenv("FINNHUB_KEY")
     current_est = datetime.now(pytz.timezone('US/Eastern')).strftime('%I:%M %p EST')
     eco_intel, embed_color = get_red_folder_intel()
+    briefing = get_finnhub_briefing(finnhub_key)
     zws = "\u200B" 
 
     embeds = [{
@@ -146,6 +132,8 @@ def main():
         "fields": [
             {"name": "📅 Economic Intel", "value": eco_intel, "inline": False},
             {"name": zws, "value": zws, "inline": False},
+            {"name": "🗞️ Market Briefing", "value": briefing, "inline": False},
+            {"name": zws, "value": zws, "inline": False},
             {"name": zws, "value": "Follow the money, not the fake gurus.", "inline": False}
         ],
         "footer": {"text": f"UWS Intelligence Desk | {current_est}"}
@@ -154,7 +142,6 @@ def main():
     assets = [{"symbol": "GC=F", "name": "GC", "color": 0xf1c40f}, {"symbol": "NQ=F", "name": "NQ", "color": 0x2ecc71}]
     mc = mpf.make_marketcolors(up='#00ffbb', down='#ff3366', edge='inherit', wick='inherit')
     s = mpf.make_mpf_style(base_mpf_style='nightclouds', marketcolors=mc, facecolor='#050505')
-
     files = {}
     for i, asset in enumerate(assets):
         plot_df, lvls = get_precision_data(asset["symbol"])
@@ -169,7 +156,6 @@ def main():
             for label, price in lvls.items():
                 axlist[0].text(len(plot_df) + 2.5, price, f"{round(price, 2)} - {label}", 
                                color='#C0C0C0', fontsize=8, fontweight='bold', va='center')
-            
             fig.savefig(fname, facecolor=fig.get_facecolor(), bbox_inches='tight')
             plt.close(fig)
             add_watermark(fname, LOGO_BASE64)
