@@ -19,7 +19,7 @@ LOGO_BASE64 = """iVBORw0KGgoAAAANSUhEUgAABAAAAAQACAYAAAB/HSuDAAAACXBIWXMAAAsTAAA
 
 # --- 🛠️ CORE UTILITIES ---
 def add_watermark(image_path, base64_str):
-    if not base64_str or len(base64_str) < 100 or "PASTE_YOUR" in base64_str: return
+    if not base64_str or len(base64_str) < 100 or "PASTE" in base64_str: return
     try:
         clean_str = "".join(base64_str.split())
         rem = len(clean_str) % 4
@@ -40,10 +40,11 @@ def add_watermark(image_path, base64_str):
     except: pass
 
 def get_tradingview_intel():
-    """TradingView API: Fetches high-impact USD events specifically."""
+    """TradingView JSON Feed: Fetches high-impact USD events specifically."""
     tz_ny = pytz.timezone('America/New_York')
     now = datetime.now(tz_ny)
     
+    # Define current 24h window in UTC for the API
     start = now.replace(hour=0, minute=0, second=0).strftime('%Y-%m-%dT%H:%M:%SZ')
     end = now.replace(hour=23, minute=59, second=59).strftime('%Y-%m-%dT%H:%M:%SZ')
     
@@ -51,29 +52,25 @@ def get_tradingview_intel():
     
     today_reds = []
     try:
-        # Use curl_cffi to impersonate browser and avoid 403 errors
+        # Impersonate browser to avoid 403 Forbidden
         resp = anti_bot_requests.get(url, impersonate="chrome120", timeout=15)
-        
         if resp.status_code == 200:
             data = resp.json()
             for event in data.get('result', []):
-                # Importance 1 = High/Red Folder
+                # Importance 1 is High Impact (Red Folder)
                 if event.get('importance') == 1:
                     title = event.get('title')
-                    date_raw = event.get('date')
+                    date_raw = event.get('date') # ISO string in UTC
                     
-                    dt_obj = datetime.strptime(date_raw, '%Y-%m-%dT%H:%M:%S.000Z').replace(tzinfo=pytz.UTC)
-                    dt_ny = dt_obj.astimezone(tz_ny)
+                    dt_utc = datetime.strptime(date_raw, '%Y-%m-%dT%H:%M:%S.000Z').replace(tzinfo=pytz.UTC)
+                    dt_ny = dt_utc.astimezone(tz_ny)
                     
                     status = "✅" if dt_ny < now else "🚩"
                     time_str = dt_ny.strftime('%I:%M %p')
-                    
                     today_reds.append(f"{status} **{title}** @ {time_str} EST")
         
-        if today_reds:
-            return "\n".join(today_reds), 0xe74c3c
+        if today_reds: return "\n".join(today_reds), 0xe74c3c
     except: pass
-    
     return "✅ No High Impact USD News Scheduled.", 0x2ecc71
 
 def get_finnhub_briefing(api_key):
@@ -96,18 +93,18 @@ def get_finnhub_briefing(api_key):
     except: return "Briefing unavailable."
 
 def get_precision_data(ticker):
-    df_5m = yf.download(ticker, period="2d", interval="5m", progress=False)
-    if df_5m.empty: return None, None
-    if isinstance(df_5m.columns, pd.MultiIndex): df_5m.columns = df_5m.columns.get_level_values(0)
-    df_5m.index = df_5m.index.tz_convert('US/Eastern')
+    df = yf.download(ticker, period="2d", interval="5m", progress=False)
+    if df.empty: return None, None
+    if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
+    df.index = df.index.tz_convert('US/Eastern')
     
-    session_start = datetime.combine(df_5m.index[-1].date(), dtime(8, 30)).replace(tzinfo=pytz.timezone('US/Eastern'))
-    window_5m = df_5m[df_5m.index >= session_start]
-    if window_5m.empty: window_5m = df_5m.tail(50)
+    session_start = datetime.combine(df.index[-1].date(), dtime(8, 30)).replace(tzinfo=pytz.timezone('US/Eastern'))
+    window = df[df.index >= session_start]
+    if window.empty: window = df.tail(50)
     
-    sess_o = window_5m.iloc[0]['Open']
-    aH = (window_5m['High'].values.flatten() - sess_o).tolist()
-    aL = (sess_o - window_5m['Low'].values.flatten()).tolist()
+    sess_o = window.iloc[0]['Open']
+    aH = (window['High'].values.flatten() - sess_o).tolist()
+    aL = (sess_o - window['Low'].values.flatten()).tolist()
     
     def p_rank(arr, p):
         s = sorted(arr)
