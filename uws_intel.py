@@ -54,8 +54,26 @@ def get_tradingview_intel():
     
     today_reds = []
     try:
-        # Impersonate browser to avoid 403 Forbidden
-        resp = anti_bot_requests.get(url, impersonate="chrome120", timeout=15)
+        # Try multiple impersonation strategies
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Origin': 'https://www.tradingview.com',
+            'Referer': 'https://www.tradingview.com/',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-site',
+        }
+        
+        # Try curl_cffi first (most effective)
+        try:
+            resp = anti_bot_requests.get(url, impersonate="chrome120", timeout=15, headers=headers)
+        except:
+            # Fallback to regular requests with headers
+            resp = discord_requests.get(url, headers=headers, timeout=15)
+        
         resp.raise_for_status()
         
         data = resp.json()
