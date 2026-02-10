@@ -41,112 +41,70 @@ def add_watermark(image_path, base64_str):
         transparent.convert("RGB").save(image_path)
     except: pass
 
-def get_economic_calendar(api_key):
-    """
-    Uses JBlanked API to fetch Forex Factory economic calendar data.
-    Returns high-impact USD events for today.
-    """
-    if not api_key: 
-        return "Calendar unavailable - API key missing.", 0x95a5a6
-    
+def get_red_folder_intel():
+    """Forex Factory Scraper: Isolates high-impact USD events for the session."""
     tz_est = pytz.timezone('US/Eastern')
     now = datetime.now(tz_est)
-    
-    # JBlanked Forex Factory Calendar endpoint
-    url = "https://www.jblanked.com/news/api/forex-factory/calendar/today/"
-    headers = {
-        "Authorization": f"Api-Key {api_key}",
-        "Content-Type": "application/json"
-    }
+    today_reds = []
     
     try:
-        resp = discord_requests.get(url, headers=headers, timeout=15)
+        # Use browser-impersonation to access Forex Factory calendar
+        url = "https://www.forexfactory.com/calendar?day=today"
+        resp = anti_bot_requests.get(url, impersonate="chrome120", timeout=15)
+        soup = BeautifulSoup(resp.text, 'html.parser')
         
-        # Check for API errors
-        if resp.status_code == 401:
-            return "❌ Calendar API authentication failed.", 0x95a5a6
-        elif resp.status_code == 429:
-            return "❌ Calendar API rate limit exceeded.", 0x95a5a6
-        elif resp.status_code != 200:
-            return f"❌ Calendar API error (status {resp.status_code}).", 0x95a5a6
+        # Calendar rows are defined by 'calendar__row'
+        rows = soup.find_all('tr', class_='calendar__row')
         
-        data = resp.json()
+        current_time_str = ""
         
-        events = []
-        seen_events = set()  # Prevent duplicates
-        
-        # Process each event from the calendar
-        for event in data:
-            # Filter for USD currency and High impact events
-            currency = event.get('country', '').upper()
-            impact = event.get('impact', '').lower()
-            title = event.get('title', '').strip()
-            time_str = event.get('time', '').strip()
+        for row in rows:
+            # Impact is indicated by the class of the icon
+            impact = row.find('td', class_='calendar__impact')
+            currency = row.find('td', class_='calendar__currency')
+            event = row.find('td', class_='calendar__event')
+            time_td = row.find('td', class_='calendar__time')
             
-            # Skip if not USD or not High impact
-            if currency != 'USD' or impact != 'high':
+            # Update the current time context if it exists in this row
+            if time_td and time_td.text.strip():
+                current_time_str = time_td.text.strip()
+            
+            if not (impact and currency and event):
                 continue
             
-            # Skip if missing critical info
-            if not title or not time_str:
-                continue
+            # Filter: Only High Impact (Red) and USD
+            is_high_impact = 'icon--impact-red' in str(impact)
+            is_usd = currency.text.strip().upper() == 'USD'
             
-            # Skip duplicates
-            if title in seen_events:
-                continue
-            seen_events.add(title)
-            
-            # Determine event status (passed or upcoming)
-            try:
-                # JBlanked time format is typically "HH:MM" in ET
-                # Parse the time
-                time_parts = time_str.replace('am', '').replace('pm', '').strip().split(':')
-                if len(time_parts) == 2:
-                    hour = int(time_parts[0])
-                    minute = int(time_parts[1])
-                    
-                    # Handle 12-hour format
-                    if 'pm' in time_str.lower() and hour != 12:
-                        hour += 12
-                    elif 'am' in time_str.lower() and hour == 12:
-                        hour = 0
-                    
-                    event_time = dtime(hour, minute)
-                    event_dt = tz_est.localize(datetime.combine(now.date(), event_time))
-                    
-                    # Determine if event has passed
-                    status = "✅" if event_dt < now else "🚩"
-                    formatted_time = event_dt.strftime('%I:%M %p ET')
-                else:
+            if is_high_impact and is_usd:
+                event_name = event.text.strip()
+                
+                # Format time and detect status
+                try:
+                    # Forex Factory times are usually '8:30am' or 'All Day'
+                    if "day" in current_time_str.lower():
+                        status = "🚩"
+                        display_time = "All Day"
+                    else:
+                        t_obj = datetime.strptime(current_time_str.lower(), "%I:%M%p").time()
+                        event_dt = tz_est.localize(datetime.combine(now.date(), t_obj))
+                        status = "✅" if event_dt < now else "🚩"
+                        display_time = current_time_str.upper()
+                except:
                     status = "🚩"
-                    formatted_time = time_str
-            except Exception as e:
-                # If time parsing fails, still show the event
-                status = "🚩"
-                formatted_time = time_str
-            
-            # Format event
-            events.append(f"{status} **{title}** @ {formatted_time}")
-        
-        if events:
-            return "\n".join(events[:10]), 0xe74c3c  # Limit to 10 events, red color
-        return "✅ No High Impact USD News Scheduled.", 0x2ecc71  # Green color
-        
-    except requests.exceptions.Timeout:
-        print("JBlanked API timeout")
-        return "⏱️ Calendar temporarily unavailable (timeout).", 0x95a5a6
-    except requests.exceptions.RequestException as e:
-        print(f"JBlanked API request error: {e}")
-        return "❌ Calendar temporarily unavailable.", 0x95a5a6
-    except json.JSONDecodeError as e:
-        print(f"JBlanked API JSON error: {e}")
-        return "❌ Calendar data format error.", 0x95a5a6
+                    display_time = current_time_str or "TBD"
+                
+                today_reds.append(f"{status} **{event_name}** @ {display_time} EST")
+
+        unique_reds = list(dict.fromkeys(today_reds))
+        if unique_reds:
+            return "\n".join(unique_reds), 0xe74c3c
     except Exception as e:
-        print(f"Economic calendar error: {e}")
-        return "❌ Calendar temporarily unavailable.", 0x95a5a6
+        print(f"Forex Factory Scraper Error: {e}")
+        
+    return "✅ No High Impact USD News Scheduled.", 0x2ecc71
 
 def get_finnhub_briefing(api_key):
-    """Fetches the two specific market insights for Gold and Nasdaq."""
     if not api_key: return "News feed offline."
     url = f"https://finnhub.io/api/v1/news?category=general&token={api_key}"
     try:
@@ -161,7 +119,7 @@ def get_finnhub_briefing(api_key):
                     found.append(f"• **{name}**: [{h[:65]}...]({l})")
                     break
             if len(found) >= 2: break
-        return "\n".join(found) if found else "No instrument-specific headlines."
+        return "\n".join(found) if found else "No sector headlines today."
     except: return "Briefing unavailable."
 
 def get_precision_data(ticker):
@@ -174,62 +132,57 @@ def get_precision_data(ticker):
     if window_5m.empty: window_5m = df_5m.tail(50)
     sess_o = window_5m.iloc[0]['Open']
     aH = (window_5m['High'].values.flatten() - sess_o).tolist()
-    aL = (window_5m['Low'].values.flatten() - sess_o).tolist()
-    above = [x for x in aH if x > 0]
-    below = [x for x in aL if x < 0]
-    if not above or not below: return None, None
-    maj_H = max(above)
-    min_H = min(above)
-    maj_L = min(below)
-    min_L = max(below)
-    std_H = (sum([(x - sum(above)/len(above))**2 for x in above]) / len(above))**0.5
-    std_L = (sum([(x - sum(below)/len(below))**2 for x in below]) / len(below))**0.5
-    high_lim_h = maj_H + (std_H * 1.5)
-    high_lim_l = maj_L - (std_L * 1.5)
+    aL = (sess_o - window_5m['Low'].values.flatten()).tolist()
+    def p_rank(arr, p):
+        s = sorted(arr)
+        return s[max(0, math.ceil((p/100) * len(s)) - 1)]
+    raw_lvls = {"P50 H": sess_o + p_rank(aH, 50), "P50 L": sess_o - p_rank(aL, 50),
+                "P75 H": sess_o + p_rank(aH, 75), "P75 L": sess_o - p_rank(aL, 75),
+                "P90 H": sess_o + p_rank(aH, 90), "P90 L": sess_o - p_rank(aL, 90)}
+    sorted_items = sorted(raw_lvls.items(), key=lambda x: x[1])
+    clean_lvls, last_p, clearance = {}, -float('inf'), sess_o * 0.0002 
+    for label, price in sorted_items:
+        if abs(price - last_p) > clearance:
+            clean_lvls[label] = price
+            last_p = price
     df_1m = yf.download(ticker, period="1d", interval="1m", progress=False)
-    if df_1m.empty: return None, None
     if isinstance(df_1m.columns, pd.MultiIndex): df_1m.columns = df_1m.columns.get_level_values(0)
     df_1m.index = df_1m.index.tz_convert('US/Eastern')
-    w_1m = df_1m[df_1m.index >= session_start]
-    if w_1m.empty: w_1m = df_1m
-    latest_h = w_1m['High'].max()
-    latest_l = w_1m['Low'].min()
-    levels = {"O": sess_o}
-    if latest_h > sess_o + min_H: levels["MIN_H"] = sess_o + min_H
-    if latest_h > sess_o + maj_H: levels["MAJ_H"] = sess_o + maj_H
-    if latest_h > sess_o + high_lim_h: levels["⚠️ EXT_H"] = sess_o + high_lim_h
-    if latest_l < sess_o + min_L: levels["MIN_L"] = sess_o + min_L
-    if latest_l < sess_o + maj_L: levels["MAJ_L"] = sess_o + maj_L
-    if latest_l < sess_o + high_lim_l: levels["⚠️ EXT_L"] = sess_o + high_lim_l
-    return w_1m, levels
+    return df_1m.tail(150), clean_lvls
 
 def main():
     webhook = os.getenv("DISCORD_WEBHOOK_URL")
-    finn_key = os.getenv("FINNHUB_KEY")
-    jblanked_key = os.getenv("JBLANKED_API_KEY")
-    
-    # Use JBlanked API for economic calendar (Forex Factory data)
-    cal_text, cal_color = get_economic_calendar(jblanked_key)
-    news_text = get_finnhub_briefing(finn_key)
-    
-    embeds = [
-        {"title": "🔴 High Impact USD Events", "description": cal_text, "color": cal_color},
-        {"title": "📰 Market Headlines", "description": news_text, "color": 0x3498db}
-    ]
-    
-    files, charts = {}, [
-        {"ticker": "GC=F", "name": "Gold", "color": 0xffd700},
-        {"ticker": "NQ=F", "name": "Nasdaq", "color": 0x00aaff},
-        {"ticker": "ES=F", "name": "SPX", "color": 0xff6347}
-    ]
-    
-    for i, asset in enumerate(charts):
-        plot_df, lvls = get_precision_data(asset["ticker"])
-        if plot_df is not None and lvls is not None and not plot_df.empty:
-            fname = f"chart_{i}.png"
-            custom_style = mpf.make_mpf_style(base_mpf_style='nightclouds', rc={'font.size': 8})
-            fig, axlist = mpf.plot(plot_df, type='candle', style=custom_style, volume=False, 
-                                   returnfig=True, warn_too_much_data=999999, 
+    finnhub_key = os.getenv("FINNHUB_KEY")
+    current_est = datetime.now(pytz.timezone('US/Eastern')).strftime('%I:%M %p EST')
+    eco_intel, embed_color = get_red_folder_intel()
+    briefing = get_finnhub_briefing(finnhub_key)
+    zws = "\u200B" 
+
+    embeds = [{
+        "title": f"{'\u2002' * 12}🏦  UNDERGROUND UPDATE  🏦",
+        "description": ("🟢 **FAVORABLE**" if embed_color == 0x2ecc71 else "🔴 **CAUTION: VOLATILITY**"),
+        "color": embed_color,
+        "fields": [
+            {"name": "📅 Economic Intel", "value": eco_intel, "inline": False},
+            {"name": zws, "value": zws, "inline": False},
+            {"name": "🗞️ Market Briefing", "value": briefing, "inline": False},
+            {"name": zws, "value": zws, "inline": False},
+            {"name": zws, "value": "Follow the money, not the fake gurus.", "inline": False}
+        ],
+        "footer": {"text": f"UWS Intelligence Desk | {current_est}"}
+    }]
+
+    assets = [{"symbol": "GC=F", "name": "GC", "color": 0xf1c40f}, {"symbol": "NQ=F", "name": "NQ", "color": 0x2ecc71}]
+    mc = mpf.make_marketcolors(up='#00ffbb', down='#ff3366', edge='inherit', wick='inherit')
+    s = mpf.make_mpf_style(base_mpf_style='nightclouds', marketcolors=mc, facecolor='#050505')
+
+    files = {}
+    for i, asset in enumerate(assets):
+        plot_df, lvls = get_precision_data(asset["symbol"])
+        if plot_df is not None:
+            plot_df = plot_df.dropna(subset=['Open', 'High', 'Low', 'Close']).astype(float)
+            fname = f"{asset['name'].lower()}.png"
+            fig, axlist = mpf.plot(plot_df, type='candle', style=s, returnfig=True, figscale=1.8,
                                    title=f"\n1 Minute Chart, {asset['name']}, {plot_df.index[0].strftime('%b %d, %Y')}",
                                    datetime_format='%I:%M %p', 
                                    hlines=dict(hlines=list(lvls.values()), colors='#C0C0C0', linewidths=1.2, alpha=0.5))
