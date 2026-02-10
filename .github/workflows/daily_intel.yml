@@ -2,7 +2,7 @@ name: UWS Daily Intel
 on:
   schedule:
     - cron: '30 13 * * 1-5' # 8:30 AM EST (Mon-Fri)
-  workflow_dispatch: # Allows manual trigger from the Actions tab
+  workflow_dispatch:
 
 jobs:
   run-intel:
@@ -21,7 +21,7 @@ jobs:
 
       - name: Run UWS Script
         env:
-          # Ensure these match the EXACT names in your GitHub Repository Secrets
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           FINNHUB_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          JBLANKED_API_KEY: ${{ secrets.JBLANKED_API_KEY }}
         run: python -u uws_intel.py
